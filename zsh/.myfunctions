@@ -11,3 +11,21 @@ source ~/.config/x/x.zsh
 function mas() {
   (cd ~/Code/MyAnimeSeason && uv run mas "$@")
 }
+
+# Launch Ghidra, auto-selecting the highest installed Cellar version so brew
+# upgrades don't break the path (numeric_glob_sort makes 12.10 > 12.2 etc).
+function ghidra() {
+  emulate -L zsh
+  setopt local_options numeric_glob_sort
+  local -a versions=(/opt/homebrew/Cellar/ghidra/*(N/))
+  if (( ! ${#versions} )); then
+    print -u2 "ghidra: no install found under /opt/homebrew/Cellar/ghidra (try: brew install ghidra)"
+    return 1
+  fi
+  local bin="${versions[-1]}/bin/pyghidraRun"   # last = highest version
+  if [[ ! -x "$bin" ]]; then
+    print -u2 "ghidra: launcher not found at $bin"
+    return 1
+  fi
+  "$bin" "$@"
+}

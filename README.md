@@ -10,8 +10,9 @@ so the real files stay versioned here.
 
 | Package | Provides | Symlinks |
 | ------- | -------- | -------- |
-| `x`     | The `x` personal command dispatcher | `~/.config/x` |
-| `zsh`   | Shell entry points | `~/.zshrc`, `~/.myfunctions` |
+| `x`       | The `x` personal command dispatcher | `~/.config/x` |
+| `zsh`     | Shell entry points | `~/.zshrc`, `~/.myfunctions` |
+| `ghostty` | Ghostty terminal config | `~/Library/Application Support/com.mitchellh.ghostty/config.ghostty` |
 
 ## Usage
 
