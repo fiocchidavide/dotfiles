@@ -4,6 +4,10 @@
 # Path to your Oh My Zsh installation.
 export ZSH="$HOME/.oh-my-zsh"
 
+# De-duplicate PATH/FPATH automatically (keeps first occurrence; avoids
+# duplicate entries when this file is re-sourced).
+typeset -U path PATH fpath FPATH
+
 # Set name of the theme to load --- if set to "random", it will
 # load a random theme each time Oh My Zsh is loaded, in which case,
 # to know which specific one was loaded, run: echo $RANDOM_THEME
@@ -71,7 +75,12 @@ ZSH_THEME=""
 # Custom plugins may be added to $ZSH_CUSTOM/plugins/
 # Example format: plugins=(rails git textmate ruby lighthouse)
 # Add wisely, as too many plugins slow down shell startup.
-plugins=(fzf-tab git zsh-syntax-highlighting zsh-autosuggestions)
+# NOTE: zsh-syntax-highlighting must be LAST (after zsh-autosuggestions).
+plugins=(fzf-tab git zsh-autosuggestions zsh-syntax-highlighting)
+
+# Homebrew completions must be on fpath BEFORE oh-my-zsh runs compinit,
+# otherwise they are never registered.
+fpath+=("$(brew --prefix)/share/zsh/site-functions")
 
 source $ZSH/oh-my-zsh.sh
 # User configuration
@@ -105,15 +114,13 @@ source $ZSH/oh-my-zsh.sh
 
 # pure zsh template
 # oh-my-zsh overrides the prompt so Pure must be activated after source $ZSH/oh-my-zsh.sh
-fpath+=("$(brew --prefix)/share/zsh/site-functions")
 autoload -U promptinit; promptinit
 prompt pure
 
-source ~/Code/RAMDisk/src/ramdisk.sh
 source ~/.myfunctions
 
 # Added by LM Studio CLI (lms)
-export PATH="$PATH:/Users/davide/.lmstudio/bin"
+export PATH="$PATH:$HOME/.lmstudio/bin"
 # End of LM Studio CLI section
 
 # fnm
@@ -122,17 +129,15 @@ eval "$(fnm env --use-on-cd --shell zsh)"
 # zoxide
 eval "$(zoxide init zsh)"
 
-export PATH="/Users/davide/.bun/bin:$PATH"
+export PATH="$HOME/.bun/bin:$PATH"
 
 # ghidra: moved to ~/.myfunctions as a version-agnostic function
 
-alias python=python3
-
 # pnpm
-export PNPM_HOME="/Users/davide/Library/pnpm"
+export PNPM_HOME="$HOME/Library/pnpm"
 case ":$PATH:" in
   *":$PNPM_HOME/bin:"*) ;;
   *) export PATH="$PNPM_HOME/bin:$PATH" ;;
 esac
 # pnpm end
-export JAVA_HOME=$(/usr/libexec/java_home)
+export JAVA_HOME=$(/usr/libexec/java_home 2>/dev/null)
