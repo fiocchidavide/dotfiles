@@ -12,6 +12,7 @@ so the real files stay versioned here.
 | ------- | -------- | -------- |
 | `x`       | The `x` personal command dispatcher | `~/.config/x` |
 | `zsh`     | Shell entry points | `~/.zshrc`, `~/.myfunctions` |
+| `git`     | Git config | `~/.gitconfig` |
 | `ghostty` | Ghostty terminal config | `~/Library/Application Support/com.mitchellh.ghostty/config.ghostty` |
 
 ## Usage
@@ -54,8 +55,12 @@ should skip (e.g. `.DS_Store`).
 ```sh
 git clone git@github.com:fiocchidavide/dotfiles.git ~/dotfiles
 cd ~/dotfiles
-make install    # brew bundle + stow everything
+make install    # Homebrew + brew bundle + stow everything + oh-my-zsh & plugins
 ```
 
-Not on Homebrew (see `Brewfile` comments): `webtorrent-cli` (pnpm), oh-my-zsh,
-zsh plugins.
+`make install` also installs oh-my-zsh and the third-party plugins
+(`fzf-tab`, `zsh-autosuggestions`, `zsh-syntax-highlighting`) into
+`$ZSH_CUSTOM/plugins` — these aren't on Homebrew, so without this step a fresh
+clone would load none of them.
+
+Still manual (see `Brewfile` comments): `webtorrent-cli` (pnpm).

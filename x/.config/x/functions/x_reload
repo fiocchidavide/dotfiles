@@ -1,0 +1,12 @@
+## reload the dispatcher and refresh all command definitions
+# Drops loaded command bodies + completion hooks so edited or newly-created
+# command files are picked up, then re-sources the core (which re-autoloads
+# everything and rebuilds descriptions).
+emulate -L zsh
+local fn
+for fn in ${(k)functions[(I)x_*]} ${(k)functions[(I)_x_*]}; do
+    unfunction "$fn" 2>/dev/null
+done
+source "${X_DIR}/x.zsh"
+local -a cmds=( ${(k)functions[(I)x_*]} )
+print "🔄 x reloaded (${#cmds} commands)"

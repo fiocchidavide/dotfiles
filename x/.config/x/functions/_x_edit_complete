@@ -1,0 +1,3 @@
+# Completion hook: `x edit <TAB>` -> existing command names.
+local -a cmds=( ${(ok)X_DESCRIPTIONS} )
+(( CURRENT == 3 )) && _describe 'command' cmds
