@@ -1,0 +1,32 @@
+## download a URL and extract the archive
+# Check if a URL was provided
+if [[ -z "$1" ]]; then
+    echo "Usage: x dw <url>"
+    return 1
+fi
+
+local url="$1"
+local file_name
+
+echo "📥 Downloading..."
+
+# Download the file and capture the dynamically generated file name
+file_name=$(curl -sSL -O -J -w "%{filename_effective}" "$url")
+
+# Check if the file actually exists on disk now
+if [[ ! -f "$file_name" ]]; then
+    echo "❌ Download failed or no file was created."
+    return 1
+fi
+
+echo "📦 Extracting: $file_name"
+
+# Run aunpack. If it succeeds, remove the archive.
+if aunpack "$file_name"; then
+    echo "🧹 Cleaning up: $file_name"
+    rm "$file_name"
+    echo "✅ Done!"
+else
+    echo "❌ Extraction failed. Archive kept for debugging: $file_name"
+    return 1
+fi

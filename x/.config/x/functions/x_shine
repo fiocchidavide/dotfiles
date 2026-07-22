@@ -1,0 +1,6 @@
+## set monitor brightness (0-100)
+if [[ -z "$1" ]]; then
+    echo "Usage: x shine <0-100>"
+    return 1
+fi
+m1ddc set luminance "$1"

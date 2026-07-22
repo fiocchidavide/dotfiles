@@ -1,0 +1,6 @@
+## run ~/Code/ocr/infinity_parser on a file
+if [[ -z "$1" ]]; then
+    echo "Usage: x ocr <file> [extra args...]"
+    return 1
+fi
+~/Code/ocr/.venv/bin/python ~/Code/ocr/infinity_parser.py "$@"
