@@ -1,0 +1,3 @@
+# Files stow should NOT symlink into $HOME.
+# NOTE: defining this file overrides stow's built-in default ignore list.
+\.DS_Store

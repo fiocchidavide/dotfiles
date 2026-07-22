@@ -3,6 +3,13 @@
 A tiny, lazy-loading subcommand dispatcher for personal zsh helpers.
 Type `x` to list commands, `x <name> [args]` to run one, `x <TAB>` to complete.
 
+Self-management (built-in commands):
+
+- `x new <name>`  — scaffold a new command file and open it in `$EDITOR`
+- `x edit <name>` — edit an existing command, then reload
+- `x reload`      — refresh all definitions after editing files by hand
+- `x doctor`      — check each command's declared dependencies
+
 ## Layout
 
 ```

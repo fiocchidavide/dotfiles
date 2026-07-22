@@ -1,0 +1,18 @@
+## scaffold a new command file and open it in $EDITOR
+emulate -L zsh
+local name="$1"
+[[ -z $name ]] && { print -u2 "Usage: x new <name>"; return 1; }
+[[ $name == [A-Za-z_]* ]] || { print -u2 "x new: name must start with a letter or underscore"; return 1; }
+local file="$X_FUNCTIONS_DIR/x_${name}"
+[[ -e $file ]] && { print -u2 "x new: $file already exists (use: x edit $name)"; return 1; }
+
+cat > "$file" <<'EOF'
+## TODO: one-line description (shows in `x` help + completion)
+# Optional: declare runtime deps for `x doctor`, e.g.:  #@needs curl jq
+
+print "TODO: implement this command"
+EOF
+
+print "📝 created ${file/#$HOME/~}"
+x_reload
+${EDITOR:-vi} "$file"

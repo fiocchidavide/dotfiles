@@ -1,0 +1,31 @@
+name: lint
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  zsh-syntax:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install zsh
+        run: sudo apt-get update && sudo apt-get install -y zsh
+
+      - name: Syntax-check all zsh files
+        run: |
+          set -e
+          files=(
+            x/.config/x/x.zsh
+            x/.config/x/functions/*
+            zsh/.myfunctions
+            zsh/.zshrc
+          )
+          for f in "${files[@]}"; do
+            echo "zsh -n $f"
+            zsh -n "$f"
+          done
+
+      - name: Check Makefile parses
+        run: make -n help >/dev/null
