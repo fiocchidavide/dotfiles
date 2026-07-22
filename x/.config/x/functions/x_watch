@@ -1,6 +1,6 @@
 # Usage:
-#   x watch <url-or-magnet>          -> plays in mpv
-#   x watch iina <url-or-magnet>     -> plays in IINA (see workaround below)
+#   x watch <url-or-magnet>          -> plays in IINA (default; see workaround below)
+#   x watch mpv <url-or-magnet>      -> plays in mpv
 #   x watch a4k <url-or-magnet>      -> plays in Anime4K-M5 (ANE 4K upscaling)
 #   x watch --ram <url-or-magnet>    -> buffers on a RAM disk instead of SSD
 #   x watch --ram=16gb <url-or-magnet> -> same, with a custom RAM disk size
@@ -23,12 +23,12 @@
 # `open` command on PATH with a shim that URL-decodes the `url` param once
 # before forwarding to /usr/bin/open, so IINA's re-encoding lands back on the
 # original.
-## stream a torrent/url in mpv (or iina), optionally buffered in RAM
+## stream a torrent/url in iina (or mpv), optionally buffered in RAM
 #@needs webtorrent
-#@needs-optional mpv iina python3   # depending on chosen player
+#@needs-optional iina mpv python3   # depending on chosen player
 # Usage: x watch [player] [--ram[=SIZEgb]] <url-or-magnet>
-# The optional player is forwarded to webtorrent as --<player> (default mpv).
-local player="mpv"
+# The optional player is forwarded to webtorrent as --<player> (default iina).
+local player="iina"
 local ram_enabled=0
 local ram_size=8
 local -a args=()
