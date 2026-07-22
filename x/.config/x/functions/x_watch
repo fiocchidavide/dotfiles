@@ -24,6 +24,8 @@
 # before forwarding to /usr/bin/open, so IINA's re-encoding lands back on the
 # original.
 ## stream a torrent/url in mpv (or iina), optionally buffered in RAM
+#@needs webtorrent
+#@needs-optional mpv iina python3   # depending on chosen player
 # Usage: x watch [player] [--ram[=SIZEgb]] <url-or-magnet>
 # The optional player is forwarded to webtorrent as --<player> (default mpv).
 local player="mpv"

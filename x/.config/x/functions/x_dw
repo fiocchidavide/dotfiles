@@ -1,4 +1,5 @@
 ## download a URL and extract the archive
+#@needs curl aunpack
 # Check if a URL was provided
 if [[ -z "$1" ]]; then
     echo "Usage: x dw <url>"

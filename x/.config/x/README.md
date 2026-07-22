@@ -33,7 +33,10 @@ Completion needs `compinit` to have run (the standard interactive setup).
    `x_<name>() { … }` wrapper (zsh autoload convention).
 2. Make the first `## ` line its one-line description; it feeds `x` help and
    tab-completion. No registry to maintain.
-3. Optional: add `functions/x_<name>` to the `_files` case in `_x` (inside
+3. Optional: declare external dependencies with `#@needs <bin>…` (required)
+   and/or `#@needs-optional <bin>…` lines. `x doctor` checks them. Add the
+   matching Homebrew formula/cask to `../../../Brewfile`.
+4. Optional: add `functions/x_<name>` to the `_files` case in `_x` (inside
    `x.zsh`) if it takes a path argument, or add `functions/_x_<name>_complete`
    for richer sub-argument completion (see `_x_ramdisk_complete`).
 
@@ -41,7 +44,8 @@ Example — `functions/x_hello`:
 
 ```zsh
 ## say hello to someone
-print "Hi, ${1:-world}!"
+#@needs cowsay
+cowsay "Hi, ${1:-world}!"
 ```
 
 Then `x hello`, `x` (lists it), `x he<TAB>` (completes it).

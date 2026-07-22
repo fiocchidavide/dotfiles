@@ -1,0 +1,13 @@
+# Personal shell helpers.
+#
+# The `x` subcommand dispatcher now lives in its own self-contained, lazy-loading
+# directory (stow/git friendly): ~/.config/x/. See ~/.config/x/README.md.
+source ~/.config/x/x.zsh
+
+# ============================================================================
+# standalone helpers (not part of `x`)
+# ============================================================================
+
+function mas() {
+  (cd ~/Code/MyAnimeSeason && uv run mas "$@")
+}
