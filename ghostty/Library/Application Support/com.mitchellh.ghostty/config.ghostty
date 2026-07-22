@@ -1,0 +1,4 @@
+theme = Material Design Colors
+shell-integration-features = true
+background-opacity = 0.9
+background-blur-radius = 20

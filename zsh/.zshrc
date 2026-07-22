@@ -124,7 +124,7 @@ eval "$(zoxide init zsh)"
 
 export PATH="/Users/davide/.bun/bin:$PATH"
 
-alias ghidra=/opt/homebrew/Cellar/ghidra/12.1.2/bin/pyghidraRun
+# ghidra: moved to ~/.myfunctions as a version-agnostic function
 
 alias python=python3
 
