@@ -1,0 +1,22 @@
+# Completion hook for `x ramdisk …`. Called by `_x` with the same `words`
+# array, where words[1]=x, words[2]=ramdisk, words[3]=subcommand.
+local -a subcmds=(
+    'create:make the next disk (RAMDisk0, RAMDisk1, …)'
+    'destroy:tear down top of stack, a specific one, or all'
+    'list:list mounted RAM disks'
+)
+
+if (( CURRENT == 3 )); then
+    _describe 'ramdisk subcommand' subcmds
+    return
+fi
+
+# `x ramdisk destroy <TAB>` -> mounted indices plus `all`
+if [[ ${words[3]} == destroy && CURRENT == 4 ]]; then
+    local -a targets=(all)
+    local d
+    for d in /Volumes/RAMDisk<->(N/); do
+        targets+=${${d:t}#RAMDisk}
+    done
+    _describe 'target' targets
+fi

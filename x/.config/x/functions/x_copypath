@@ -1,0 +1,13 @@
+## copy the absolute path of a file to clipboard
+if [[ -z "$1" ]]; then
+    echo "Usage: x copypath <file>"
+    return 1
+fi
+if [[ ! -e "$1" ]]; then
+    echo "❌ No such file or directory: $1"
+    return 1
+fi
+local abs_path
+abs_path=$(realpath "$1")
+printf '%s' "$abs_path" | pbcopy
+echo "📋 Copied: $abs_path"

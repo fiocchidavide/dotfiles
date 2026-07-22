@@ -1,0 +1,120 @@
+# Usage:
+#   x watch <url-or-magnet>          -> plays in mpv
+#   x watch iina <url-or-magnet>     -> plays in IINA (see workaround below)
+#   x watch a4k <url-or-magnet>      -> plays in Anime4K-M5 (ANE 4K upscaling)
+#   x watch --ram <url-or-magnet>    -> buffers on a RAM disk instead of SSD
+#   x watch --ram=16gb <url-or-magnet> -> same, with a custom RAM disk size
+#
+# --ram workaround: mounts a fresh APFS RAM disk (via `x ramdisk`) at
+# /Volumes/RAMDisk<N> and points webtorrent's --out at it, so streamed pieces
+# are buffered in RAM instead of the SSD's temp folder. Each run gets its own
+# numbered disk, so concurrent `x watch --ram` invocations don't collide.
+# The disk is torn down automatically when playback ends (EXIT trap), including
+# on Ctrl-C. Default size is 8GiB; override with --ram=<size>[gb].
+#
+# a4k workaround: webtorrent has no custom-player flag, but it spawns plain
+# `mpv` from PATH (`mpv --really-quiet --loop=no <http-url>`). We shadow `mpv`
+# with a shim that extracts the stream URL and execs anime4k-m5 on it instead.
+# Build the player once with: cd ~/Code/Anime4K-M5/app && swift build -c release
+#
+# IINA workaround: webtorrent's --iina invokes `open iina://weblink?url=<href>`,
+# where <href> is already URL-encoded. IINA then encodes it again before
+# fetching (e.g. %20 -> %2520, [ -> %5B), so playback hits a 404. We shadow the
+# `open` command on PATH with a shim that URL-decodes the `url` param once
+# before forwarding to /usr/bin/open, so IINA's re-encoding lands back on the
+# original.
+## stream a torrent/url in mpv (or iina), optionally buffered in RAM
+# Usage: x watch [player] [--ram[=SIZEgb]] <url-or-magnet>
+# The optional player is forwarded to webtorrent as --<player> (default mpv).
+local player="mpv"
+local ram_enabled=0
+local ram_size=8
+local -a args=()
+local a
+for a in "$@"; do
+    case "$a" in
+        --ram) ram_enabled=1 ;;
+        --ram=*)
+            ram_enabled=1
+            ram_size="${a#--ram=}"
+            ram_size="${ram_size%%[gG][bB]}"
+            ;;
+        *) args+=("$a") ;;
+    esac
+done
+set -- "${args[@]}"
+
+if [[ -n "$2" ]]; then
+    player="$1"
+    shift
+fi
+local target="$1"
+if [[ -z "$target" ]]; then
+    echo "Usage: x watch [player] [--ram[=SIZEgb]] <url-or-magnet>"
+    return 1
+fi
+
+local -a wt_out=()
+if (( ram_enabled )); then
+    echo "💾 Creating ${ram_size}GiB RAM disk for the streaming buffer..."
+    # Multiplexed: create a fresh disk and capture its own mount point, so
+    # concurrent `x watch --ram` runs each get an independent buffer.
+    local ram_mp
+    ram_mp=$(x_ramdisk create "$ram_size") || return 1
+    # zsh: an EXIT trap set inside a function fires when the function
+    # returns (not just on shell exit), so this tears down the RAM disk
+    # on normal completion, early return, or Ctrl-C alike. Destroy this
+    # run's specific disk (not just top-of-stack) to stay correct under
+    # concurrent runs.
+    trap 'echo "🧹 Destroying RAM disk..."; x_ramdisk destroy "$ram_mp"' EXIT
+    wt_out=(--out "$ram_mp")
+fi
+
+if [[ "$player" == "a4k" ]]; then
+    local a4k_bin="$HOME/Code/Anime4K-M5/app/.build/release/anime4k-m5"
+    local a4k_model="$HOME/Code/Anime4K-M5/app/Models/ModeA_M.mlpackage"
+    if [[ ! -x "$a4k_bin" ]]; then
+        echo "❌ $a4k_bin not built. Run: cd ~/Code/Anime4K-M5/app && swift build -c release"
+        return 1
+    fi
+    local tmpdir=$(mktemp -d)
+    cat > "$tmpdir/mpv" <<EOF
+#!/bin/bash
+# webtorrent calls: mpv --really-quiet --loop=no <http-url>; keep only the URL.
+url=""
+for a in "\$@"; do
+    a="\${a%\\"}"; a="\${a#\\"}"   # strip quotes webtorrent may have JSON.stringify'd in
+    [[ "\$a" == http*://* ]] && url="\$a"
+done
+[[ -n "\$url" ]] || { echo "a4k shim: no stream URL in: \$*" >&2; exit 1; }
+exec "$a4k_bin" play --model "$a4k_model" "\$url"
+EOF
+    chmod +x "$tmpdir/mpv"
+    PATH="$tmpdir:$PATH" webtorrent "$target" --mpv "${wt_out[@]}"
+    rm -rf "$tmpdir"
+    return
+fi
+
+if [[ "$player" != "iina" ]]; then
+    webtorrent "$target" --"$player" "${wt_out[@]}"
+    return
+fi
+
+# iina needs a shim `open` that URL-decodes the iina://weblink argument.
+local tmpdir=$(mktemp -d)
+cat > "$tmpdir/open" <<'EOF'
+#!/bin/bash
+args=()
+for a in "$@"; do
+    if [[ "$a" == iina://weblink\?url=* ]]; then
+        url="${a#iina://weblink?url=}"
+        decoded=$(python3 -c 'import sys,urllib.parse; print(urllib.parse.unquote(sys.argv[1]))' "$url")
+        a="iina://weblink?url=$decoded"
+    fi
+    args+=("$a")
+done
+exec /usr/bin/open "${args[@]}"
+EOF
+chmod +x "$tmpdir/open"
+PATH="$tmpdir:$PATH" webtorrent "$target" --iina "${wt_out[@]}"
+rm -rf "$tmpdir"

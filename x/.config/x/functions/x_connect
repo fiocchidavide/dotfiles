@@ -1,0 +1,12 @@
+## connect to ETH Zurich VPN via openconnect
+echo "🔐 Retrieving credentials from 1Password..."
+local password=$(op read "op://Personal/ETH Z network/newPassword")
+local challenge=$(op read "op://Personal/ETH Z services/password monouso?attribute=otp")
+
+if [[ -z "$password" || -z "$challenge" ]]; then
+    echo "❌ Failed to retrieve credentials from 1Password."
+    return 1
+fi
+
+echo "🌍 Connecting to ETH Zurich VPN..."
+{ echo "$password"; echo "$challenge"; } | sudo openconnect -u dfiocchi@student-net.ethz.ch --useragent=AnyConnect -g student-net sslvpn.ethz.ch --no-external-auth --passwd-on-stdin
