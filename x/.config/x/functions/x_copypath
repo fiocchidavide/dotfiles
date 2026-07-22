@@ -1,4 +1,5 @@
 ## copy the absolute path of a file to clipboard
+#@needs realpath pbcopy
 if [[ -z "$1" ]]; then
     echo "Usage: x copypath <file>"
     return 1

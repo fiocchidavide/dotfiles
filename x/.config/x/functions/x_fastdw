@@ -1,4 +1,5 @@
 ## download a URL fast with aria2c (max parallel connections)
+#@needs aria2c
 if [[ -z "$1" ]]; then
     echo "Usage: x fastdw <url> [aria2c args...]"
     return 1

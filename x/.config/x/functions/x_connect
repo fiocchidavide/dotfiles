@@ -1,4 +1,5 @@
 ## connect to ETH Zurich VPN via openconnect
+#@needs op openconnect
 echo "🔐 Retrieving credentials from 1Password..."
 local password=$(op read "op://Personal/ETH Z network/newPassword")
 local challenge=$(op read "op://Personal/ETH Z services/password monouso?attribute=otp")

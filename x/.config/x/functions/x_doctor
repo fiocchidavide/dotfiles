@@ -1,0 +1,67 @@
+## check that each command's declared dependencies are installed
+# Reads `#@needs <bin>…` (required) and `#@needs-optional <bin>…` lines from
+# every command file — the same lightweight convention as `## description`.
+# Add a dependency to a new command by adding one such line; nothing else.
+emulate -L zsh
+
+local only="$1"
+local -a missing_all
+local any=0
+
+local f name line rest b
+for f in $X_FUNCTIONS_DIR/x_*(N); do
+    name=${${f:t}#x_}
+    [[ -n $only && $only != $name ]] && continue
+
+    local -a req opt
+    req=(); opt=()
+    while IFS= read -r line; do
+        case $line in
+            '#@needs '*)          req+=( ${=line#\#@needs } ) ;;
+            '#@needs-optional '*) rest=${line#\#@needs-optional }
+                                  rest=${rest%%\#*}          # strip trailing comment
+                                  opt+=( ${=rest} ) ;;
+        esac
+    done < $f
+
+    (( ${#req} + ${#opt} == 0 )) && continue
+    any=1
+
+    printf "  %-10s " "$name"
+    for b in $req; do
+        if command -v "$b" >/dev/null 2>&1; then
+            print -n "✓$b "
+        else
+            print -n "✗$b "
+            missing_all+=$b
+        fi
+    done
+    for b in $opt; do
+        if command -v "$b" >/dev/null 2>&1; then
+            print -n "○$b "
+        else
+            print -n "·$b "
+        fi
+    done
+    print
+done
+
+if (( ! any )); then
+    [[ -n $only ]] && { print "No command named '$only' with declared dependencies."; return 1; }
+    print "No dependencies declared."
+    return 0
+fi
+
+print
+print "Legend: ✓ present   ✗ MISSING (required)   ○ optional present   · optional absent"
+
+if (( ${#missing_all} )); then
+    missing_all=( ${(u)missing_all} )   # de-duplicate
+    print "\n❌ Missing required: ${(j:, :)missing_all}"
+    local brewfile=${X_DIR:h:h:h}/Brewfile
+    [[ -f $brewfile ]] && print "   Try: brew bundle --file=${brewfile/#$HOME/~}"
+    return 1
+fi
+
+print "\n✅ All required dependencies present."
+return 0

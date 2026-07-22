@@ -1,4 +1,5 @@
 ## extract a page range from a PDF with mutool
+#@needs mutool
 if [[ -z "$1" || -z "$2" ]]; then
     echo "Usage: x extrct <input.pdf> <page-range> [output.pdf]"
     echo "  page-range examples: 1, 1-5, 1,3-5,8"
