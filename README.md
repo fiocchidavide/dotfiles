@@ -6,6 +6,11 @@ Each top-level directory is a **stow package** whose internal structure mirrors
 its location under `$HOME`. Stowing a package symlinks its files into `$HOME`,
 so the real files stay versioned here.
 
+The repo is position-agnostic: clone it wherever you like (`~/dotfiles`,
+`~/Code/dotfiles`, …). Nothing here hardcodes its own location — the
+`Makefile` uses `$(CURDIR)` and the `x` dispatcher resolves its own path at
+runtime, so both work from any clone location.
+
 ## Packages
 
 | Package | Provides | Symlinks |
@@ -20,7 +25,7 @@ so the real files stay versioned here.
 The `Makefile` wraps the common operations (packages are auto-detected):
 
 ```sh
-cd ~/dotfiles
+cd path/to/dotfiles
 make            # help
 make link       # stow every package into $HOME
 make relink     # re-stow after adding/removing files
@@ -53,8 +58,8 @@ should skip (e.g. `.DS_Store`).
 ## Fresh machine
 
 ```sh
-git clone git@github.com:fiocchidavide/dotfiles.git ~/dotfiles
-cd ~/dotfiles
+git clone git@github.com:fiocchidavide/dotfiles.git   # clone anywhere
+cd dotfiles
 make install    # Homebrew + brew bundle + stow everything + oh-my-zsh & plugins
 ```
 
