@@ -1,0 +1,8 @@
+# Completion hook for `x connect …`; words[3] is the VPN target.
+local -a targets=(
+    'eth:ETH Zurich VPN (sslvpn.ethz.ch, student-net)'
+    'epfl:EPFL VPN (vpn.epfl.ch)'
+    'off:disconnect the current session'
+)
+
+(( CURRENT == 3 )) && _describe 'vpn' targets
