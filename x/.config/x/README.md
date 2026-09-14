@@ -59,21 +59,21 @@ Then `x hello`, `x` (lists it), `x he<TAB>` (completes it).
 
 ## Backup with GNU stow
 
-This directory is self-contained and path-independent, so it stows cleanly.
-Move it into a dotfiles repo mirroring `$HOME`:
+This directory is self-contained and position-agnostic: `x.zsh` resolves its
+own real path at runtime, so it doesn't matter where the enclosing repo is
+cloned. Move it into a dotfiles repo mirroring `$HOME`:
 
 ```
-~/dotfiles/               # git repo
+dotfiles/                 # git repo, cloned anywhere
   x/                      # stow package
     .config/x/            # <- this directory
 ```
 
-Then:
+Then, from the repo root (wherever that is):
 
 ```sh
-cd ~/dotfiles
-stow x            # symlinks ~/.config/x -> ~/dotfiles/x/.config/x
+stow x            # symlinks ~/.config/x -> <repo>/x/.config/x
 ```
 
 Because `x.zsh` resolves its own real path, autoloading keeps working through
-the symlink.
+the symlink — no matter where `<repo>` lives.

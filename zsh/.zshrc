@@ -130,14 +130,3 @@ eval "$(fnm env --use-on-cd --shell zsh)"
 eval "$(zoxide init zsh)"
 
 export PATH="$HOME/.bun/bin:$PATH"
-
-# ghidra: moved to ~/.myfunctions as a version-agnostic function
-
-# pnpm
-export PNPM_HOME="$HOME/Library/pnpm"
-case ":$PATH:" in
-  *":$PNPM_HOME/bin:"*) ;;
-  *) export PATH="$PNPM_HOME/bin:$PATH" ;;
-esac
-# pnpm end
-export JAVA_HOME=$(/usr/libexec/java_home 2>/dev/null)
