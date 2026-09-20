@@ -35,9 +35,11 @@ omz: ## install oh-my-zsh + third-party zsh plugins (idempotent)
 	done
 
 link: ## symlink all packages into $HOME
+	@mkdir -p "$(HOME)/.config"
 	stow --dir="$(STOW_DIR)" --target="$(HOME)" -v $(PACKAGES)
 
 relink: ## re-symlink packages (after adding/removing files)
+	@mkdir -p "$(HOME)/.config"
 	stow --dir="$(STOW_DIR)" --target="$(HOME)" -Rv $(PACKAGES)
 
 unlink: ## remove all symlinks for every package

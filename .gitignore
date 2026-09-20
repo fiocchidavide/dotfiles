@@ -14,8 +14,7 @@
 # Stow leftovers
 *.stow-tmp
 
-# ~/.config is folded onto x/.config as a single symlink (see README), so
-# every app's real config lands here on disk. Only the x package itself
-# belongs in the repo - ignore everything else under x/.config/.
+# Safety net against Stow tree-folding onto x/.config (see README): only
+# the x package itself belongs in this repo.
 x/.config/*
 !x/.config/x
