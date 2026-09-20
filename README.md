@@ -16,9 +16,16 @@ runtime, so both work from any clone location.
 | Package | Provides | Symlinks |
 | ------- | -------- | -------- |
 | `x`       | The `x` personal command dispatcher | `~/.config/x` |
-| `zsh`     | Shell entry points | `~/.zshrc`, `~/.myfunctions` |
+| `zsh`     | Shell entry points | `~/.zshrc`, `~/.zshenv`, `~/.zprofile`, `~/.myfunctions` |
 | `git`     | Git config | `~/.gitconfig` |
 | `ghostty` | Ghostty terminal config | `~/Library/Application Support/com.mitchellh.ghostty/config.ghostty` |
+
+> **Note on `~/.config`:** `~/.config` didn't exist before this repo was first
+> stowed, so Stow's tree-folding collapsed the whole directory into one
+> symlink (`~/.config -> x/.config`) instead of just `~/.config/x`. Every app
+> that writes under `~/.config/*` therefore writes for real into
+> `x/.config/*` on disk. Only `x/.config/x` is meant to be tracked here —
+> `.gitignore` excludes everything else under `x/.config/`.
 
 ## Usage
 

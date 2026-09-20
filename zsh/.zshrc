@@ -4,10 +4,6 @@
 # Path to your Oh My Zsh installation.
 export ZSH="$HOME/.oh-my-zsh"
 
-# De-duplicate PATH/FPATH automatically (keeps first occurrence; avoids
-# duplicate entries when this file is re-sourced).
-typeset -U path PATH fpath FPATH
-
 # Set name of the theme to load --- if set to "random", it will
 # load a random theme each time Oh My Zsh is loaded, in which case,
 # to know which specific one was loaded, run: echo $RANDOM_THEME
@@ -119,14 +115,8 @@ prompt pure
 
 source ~/.myfunctions
 
-# Added by LM Studio CLI (lms)
-export PATH="$PATH:$HOME/.lmstudio/bin"
-# End of LM Studio CLI section
-
 # fnm
 eval "$(fnm env --use-on-cd --shell zsh)"
 
 # zoxide
 eval "$(zoxide init zsh)"
-
-export PATH="$HOME/.bun/bin:$PATH"
