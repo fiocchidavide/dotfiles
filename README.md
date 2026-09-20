@@ -20,12 +20,14 @@ runtime, so both work from any clone location.
 | `git`     | Git config | `~/.gitconfig` |
 | `ghostty` | Ghostty terminal config | `~/Library/Application Support/com.mitchellh.ghostty/config.ghostty` |
 
-> **Note on `~/.config`:** `~/.config` didn't exist before this repo was first
-> stowed, so Stow's tree-folding collapsed the whole directory into one
-> symlink (`~/.config -> x/.config`) instead of just `~/.config/x`. Every app
-> that writes under `~/.config/*` therefore writes for real into
-> `x/.config/*` on disk. Only `x/.config/x` is meant to be tracked here —
-> `.gitignore` excludes everything else under `x/.config/`.
+> **Note on `~/.config`:** only `~/.config/x` is meant to be symlinked here.
+> If `~/.config` doesn't exist yet when stowing, Stow's tree-folding will
+> collapse the whole directory into one symlink (`~/.config -> x/.config`)
+> instead of just `~/.config/x`, and every other app then writes its real
+> config straight into this repo. `make link`/`make relink` guard against
+> this by pre-creating `~/.config` as a real directory before stowing. As a
+> second safety net, `.gitignore` excludes everything under `x/.config/`
+> except `x/.config/x`.
 
 ## Usage
 
