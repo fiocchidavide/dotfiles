@@ -11,7 +11,6 @@ brew "atool"          # x dw       (aunpack)
 brew "mupdf-tools"    # x extrct   (mutool)
 brew "m1ddc"          # x shine
 brew "openconnect"    # x connect
-brew "mpv"            # x watch    (default player)
 brew "uv"             # x ocr, mas
 
 # --- dotfiles / shell tooling ---
