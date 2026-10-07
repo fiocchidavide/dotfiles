@@ -18,3 +18,18 @@
 # the x package itself belongs in this repo.
 x/.config/*
 !x/.config/x
+
+# Same safety net for the paseo package: ~/.paseo also holds the daemon
+# keypair, client id, logs and runtime state — only the config template is
+# versioned (config.json itself is rendered by `make paseo-config`).
+paseo/.paseo/*
+!paseo/.paseo/config.json.tmpl
+
+# Personal settings for x commands (usernames, 1Password references);
+# config.zsh.example is the versioned template.
+x/.config/x/config.zsh
+
+# And for vscode: VS Code keeps caches, history and workspace storage next to
+# its user config — only keybindings.json is versioned.
+vscode/Library/Application Support/Code/User/*
+!vscode/Library/Application Support/Code/User/keybindings.json

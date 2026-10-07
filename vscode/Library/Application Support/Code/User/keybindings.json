@@ -1,0 +1,38 @@
+// Place your key bindings in this file to override the defaults
+[
+    {
+        "key": "shift+cmd+v",
+        "command": "editor.action.pasteAsText"
+    },
+    {
+        "key": "shift+cmd+v",
+        "command": "-editor.action.pasteAsText",
+        "when": "chatInputHasFocus"
+    },
+
+    // Typst formatting (disabled while trying an extension; uncomment to restore)
+    // {
+    //     "key": "cmd+b",
+    //     "command": "editor.action.insertSnippet",
+    //     "when": "editorTextFocus && editorLangId == typst",
+    //     "args": { "snippet": "*${TM_SELECTED_TEXT}$0*" }
+    // },
+    // {
+    //     "key": "cmd+i",
+    //     "command": "editor.action.insertSnippet",
+    //     "when": "editorTextFocus && editorLangId == typst",
+    //     "args": { "snippet": "_${TM_SELECTED_TEXT}$0_" }
+    // },
+    // {
+    //     "key": "cmd+u",
+    //     "command": "editor.action.insertSnippet",
+    //     "when": "editorTextFocus && editorLangId == typst",
+    //     "args": { "snippet": "#underline[${TM_SELECTED_TEXT}$0]" }
+    // },
+    // {
+    //     "key": "cmd+m",
+    //     "command": "editor.action.insertSnippet",
+    //     "when": "editorTextFocus && editorLangId == typst",
+    //     "args": { "snippet": "\\$${TM_SELECTED_TEXT}$0\\$" }
+    // }
+]

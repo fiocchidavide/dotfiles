@@ -6,26 +6,59 @@
 #   x connect off        -> tear down any running openconnect session
 #   x connect            -> show which VPN (if any) is up
 #
+# Sessions run in the background (-b) and only one may be up at a time.
+# Usernames and 1Password references come from ~/.config/x/config.zsh
+# (X_ETH_*, X_EPFL_*).
+#
 # Both networks want password + a one-time code, so we feed openconnect two
 # lines on stdin: --passwd-on-stdin consumes the first for the password form,
 # and the second is read back for the challenge/OTP form that follows.
 
 emulate -L zsh
 
+# Print which VPN the running openconnect belongs to (eth | epfl | unknown),
+# or nothing if none is up.
+_x_connect_current() {
+    local pids args
+    pids=(${(f)"$(pgrep -x openconnect)"})
+    (( ${#pids} )) || return 1
+    args=$(ps -o args= -p ${(j:,:)pids})
+    case "$args" in
+        *ethz.ch*)  print eth ;;
+        *epfl.ch*)  print epfl ;;
+        *)          print unknown ;;
+    esac
+}
+
 _x_connect_status() {
-    if pgrep -x openconnect >/dev/null 2>&1; then
-        print "🔗 openconnect is running:"
-        pgrep -alx openconnect | sed 's/^/   /'
+    local current
+    if current=$(_x_connect_current); then
+        print "🔗 Connected: $current"
     else
         print "🔌 No VPN connection is up."
     fi
 }
 
+# Only one tunnel at a time: two openconnect sessions fight over DNS and
+# routes (vpnc-script rewrites them for whichever connected last).
+_x_connect_guard() {
+    local current
+    current=$(_x_connect_current) || return 0
+    if [[ "$current" == "$1" ]]; then
+        print "✅ Already connected to $1."
+    else
+        print "⚠️  Already connected to $current. Run 'x connect off' first." >&2
+    fi
+    return 1
+}
+
 _x_connect_eth() {
+    _x_connect_guard eth || return
+    _x_need_config X_ETH_USER X_ETH_PASSWORD_REF X_ETH_OTP_REF || return
     print "🔐 Retrieving ETH credentials from 1Password..."
     local password challenge
-    password=$(op read "op://Personal/ETH Z network/newPassword")
-    challenge=$(op read "op://Personal/ETH Z services/password monouso?attribute=otp")
+    password=$(op read "$X_ETH_PASSWORD_REF")
+    challenge=$(op read "$X_ETH_OTP_REF")
 
     if [[ -z "$password" || -z "$challenge" ]]; then
         print "❌ Failed to retrieve credentials from 1Password."
@@ -34,16 +67,21 @@ _x_connect_eth() {
 
     print "🌍 Connecting to ETH Zurich VPN..."
     { print -r -- "$password"; print -r -- "$challenge" } | \
-        sudo openconnect -u dfiocchi@student-net.ethz.ch --useragent=AnyConnect \
+        sudo openconnect -b -u "$X_ETH_USER" --useragent=AnyConnect \
             -g student-net sslvpn.ethz.ch --no-external-auth --passwd-on-stdin
 }
 
 _x_connect_epfl() {
+    _x_connect_guard epfl || return
+    # A plain X_EPFL_USER wins; otherwise the username comes from 1Password.
+    local user_var=X_EPFL_USER_REF
+    [[ -n $X_EPFL_USER ]] && user_var=X_EPFL_USER
+    _x_need_config $user_var X_EPFL_PASSWORD_REF X_EPFL_OTP_REF || return
     print "🔐 Retrieving EPFL credentials from 1Password..."
     local user password challenge
-    user=${X_EPFL_USER:-$(op read "op://Personal/EPFL/username")}
-    password=$(op read "op://Personal/EPFL/password")
-    challenge=$(op read "op://Personal/EPFL/password monouso?attribute=otp")
+    user=${X_EPFL_USER:-$(op read "$X_EPFL_USER_REF")}
+    password=$(op read "$X_EPFL_PASSWORD_REF")
+    challenge=$(op read "$X_EPFL_OTP_REF")
 
     if [[ -z "$user" || -z "$password" ]]; then
         print "❌ Failed to retrieve credentials from 1Password."

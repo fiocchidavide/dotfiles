@@ -1,0 +1,13 @@
+# Completion hook for `x serve …`; words[3] is the target.
+local -a targets=(
+    "webdav:share a directory as WebDAV (default ${X_WEBDAV_DIR:-~/WebDAV})"
+    'paseo:front the local paseo daemon on :6767'
+)
+
+if (( CURRENT == 3 )); then
+    _describe 'target' targets
+    return
+fi
+
+# `x serve webdav <TAB>` -> the directory to share
+[[ ${words[3]} == webdav && CURRENT == 4 ]] && _files -/

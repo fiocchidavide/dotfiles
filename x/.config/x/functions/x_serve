@@ -1,0 +1,116 @@
+## share a local service over the tailnet (webdav | paseo)
+#@needs tailscale rclone op jq nc
+# Usage:
+#   x serve webdav [dir]   -> rclone WebDAV backend + tailscale in front (default $X_WEBDAV_DIR)
+#   x serve paseo          -> front the already-running paseo daemon on :6767
+#   x serve                -> show what this node is currently serving
+#
+# Every subcommand runs `tailscale serve` in the FOREGROUND, so the share lives
+# and dies with this shell: Ctrl-C tears the serve config down again. Nothing is
+# left advertised on the tailnet after you walk away.
+#
+# WebDAV user, password reference and default directory come from
+# ~/.config/x/config.zsh (X_WEBDAV_*).
+
+emulate -L zsh
+
+# This node's HTTPS name, trailing dot stripped.
+_x_serve_dnsname() {
+    tailscale status --json | jq -r '.Self.DNSName' | sed 's/\.$//'
+}
+
+# Hand tailscale a port that's actually listening, or it proxies to nothing.
+# Returns non-zero if nothing came up within ~5s.
+_x_serve_wait_port() {
+    local port=$1 i
+    for i in {1..50}; do
+        nc -z 127.0.0.1 "$port" 2>/dev/null && return 0
+        sleep 0.1
+    done
+    return 1
+}
+
+# Share a directory as WebDAV. rclone serves it on localhost, tailscale fronts
+# it with the node's HTTPS name; both die with this shell.
+_x_serve_webdav() {
+    _x_need_config X_WEBDAV_USER X_WEBDAV_PASSWORD_REF || return
+    local dir="${1:-${X_WEBDAV_DIR:-$HOME/WebDAV}}"
+    local port=8080
+
+    if [[ ! -d "$dir" ]]; then
+        print -u2 "serve webdav: no such directory: $dir"
+        return 1
+    fi
+
+    local password
+    password=$(op read "$X_WEBDAV_PASSWORD_REF")
+    if [[ -z "$password" ]]; then
+        print -u2 "❌ Failed to retrieve the WebDAV password from 1Password."
+        return 1
+    fi
+
+    # Passed as env vars rather than --user/--pass so the password stays out of
+    # the process list.
+    RCLONE_USER="$X_WEBDAV_USER" RCLONE_PASS="$password" \
+        rclone serve webdav "$dir" --addr "127.0.0.1:$port" &
+    local rclone_pid=$!
+
+    # Background jobs don't get the terminal's SIGINT, so rclone needs killing by
+    # hand however we leave — Ctrl-C, a signal, or `tailscale serve` exiting.
+    trap "kill $rclone_pid 2>/dev/null" INT TERM EXIT
+
+    if ! _x_serve_wait_port "$port"; then
+        print -u2 "❌ rclone never came up on 127.0.0.1:$port."
+        return 1
+    fi
+
+    print "📂 $dir → https://$(_x_serve_dnsname)"
+    print "   user: $X_WEBDAV_USER · password: 1Password → $X_WEBDAV_PASSWORD_REF"
+
+    tailscale serve "http://127.0.0.1:$port"
+}
+
+# Front the paseo daemon, which listens on 127.0.0.1:6767 of its own accord
+# (see ~/.paseo/config.json). Same port on the tailnet side so app.paseo.sh —
+# the only allowed CORS origin — can reach it from another device.
+_x_serve_paseo() {
+    local port=6767
+
+    if ! nc -z 127.0.0.1 "$port" 2>/dev/null; then
+        print -u2 "⚠️  Nothing is listening on 127.0.0.1:$port — is the paseo daemon running?"
+        print -u2 "   Serving anyway; it'll start working once the daemon is up."
+    fi
+
+    print "🌐 paseo daemon → https://$(_x_serve_dnsname):$port"
+
+    tailscale serve --https="$port" "http://127.0.0.1:$port"
+}
+
+_x_serve_status() {
+    local out
+    out=$(tailscale serve status 2>&1)
+    if [[ -z "$out" || "$out" == *"No serve config"* ]]; then
+        print "🔌 This node isn't serving anything."
+        print "   Start one with: x serve <webdav|paseo>"
+    else
+        print -r -- "$out"
+    fi
+}
+
+case "${1:-}" in
+    "")        _x_serve_status ;;
+    webdav)    shift; _x_serve_webdav "$@" ;;
+    paseo)     shift; _x_serve_paseo "$@" ;;
+    -h|--help|help)
+        print "Usage: x serve <webdav|paseo>"
+        print "  webdav [dir]   share a directory as WebDAV (default ${X_WEBDAV_DIR:-~/WebDAV})"
+        print "  paseo          front the local paseo daemon on :6767"
+        print "  (no args)      show the current serve config"
+        print
+        print "Runs in the foreground — Ctrl-C stops the share."
+        ;;
+    *)
+        print -u2 "❌ Unknown target '$1'. Try: x serve <webdav|paseo>"
+        return 1
+        ;;
+esac

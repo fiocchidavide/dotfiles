@@ -11,6 +11,7 @@ brew "atool"          # x dw       (aunpack)
 brew "mupdf-tools"    # x extrct   (mutool)
 brew "m1ddc"          # x shine
 brew "openconnect"    # x connect
+brew "rclone"         # x serve webdav
 brew "uv"             # x ocr, mas
 
 # --- dotfiles / shell tooling ---
@@ -26,5 +27,6 @@ cask "iina"           # x watch iina
 
 # --- not available via Homebrew (install manually) ---
 #   webtorrent-cli   ->  pnpm add -g webtorrent-cli   (x watch)
+#   tailscale        ->  the macOS app ships the CLI   (x serve)
 #   oh-my-zsh        ->  sh -c "$(curl -fsSL https://install.ohmyz.sh/)"
 #   zsh plugins      ->  fzf-tab, zsh-syntax-highlighting, zsh-autosuggestions

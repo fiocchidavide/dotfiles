@@ -34,6 +34,21 @@ source ~/.config/x/x.zsh
 
 Completion needs `compinit` to have run (the standard interactive setup).
 
+## Personal settings
+
+`x.zsh` sources `config.zsh` from this directory if present. It's
+git-ignored; `config.zsh.example` lists every key with placeholders. Keep
+secrets out of it: store 1Password secret references (`X_*_REF`) and read
+them with `op read` at run time.
+
+A command checks the settings it needs with `_x_need_config`, which fails
+naming any key that's empty or still an `<placeholder>`:
+
+```zsh
+_x_need_config X_FOO_USER X_FOO_PASSWORD_REF || return
+password=$(op read "$X_FOO_PASSWORD_REF")
+```
+
 ## Adding a command
 
 1. Create `functions/x_<name>`. Its contents are the command **body** — no

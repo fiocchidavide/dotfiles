@@ -1,0 +1,29 @@
+# Personal settings for `x` commands — copy to `config.zsh` (git-ignored)
+# next to this file and fill in your own values:
+#
+#   cp ~/.config/x/config.zsh.example ~/.config/x/config.zsh
+#
+# x.zsh sources config.zsh on startup (and on `x reload`). Commands that need
+# a setting that's still unset say which one and stop.
+#
+# Secrets never go here as plaintext: values ending in _REF are 1Password
+# secret references (`op://<vault>/<item>/<field>`), read with `op read` at
+# the moment they're needed. Copy one from 1Password via the field's
+# "Copy Secret Reference" menu entry.
+
+# --- x connect eth ----------------------------------------------------------
+X_ETH_USER="<nethz>@student-net.ethz.ch"
+X_ETH_PASSWORD_REF="op://<vault>/<item>/password"
+X_ETH_OTP_REF="op://<vault>/<item>/one-time password?attribute=otp"
+
+# --- x connect epfl ---------------------------------------------------------
+# Either a plain username, or a reference to read it from 1Password.
+X_EPFL_USER=""
+X_EPFL_USER_REF="op://<vault>/<item>/username"
+X_EPFL_PASSWORD_REF="op://<vault>/<item>/password"
+X_EPFL_OTP_REF="op://<vault>/<item>/one-time password?attribute=otp"
+
+# --- x serve webdav ---------------------------------------------------------
+X_WEBDAV_USER="$USER"
+X_WEBDAV_PASSWORD_REF="op://<vault>/<item>/password"
+X_WEBDAV_DIR="$HOME/WebDAV"

@@ -6,9 +6,12 @@ PACKAGES := $(patsubst %/,%,$(wildcard */))
 # freshly installed Homebrew (not yet on PATH) is still found within `make`.
 BREW := $(shell command -v brew 2>/dev/null || echo /opt/homebrew/bin/brew)
 ZSH_CUSTOM ?= $(HOME)/.oh-my-zsh/custom
+# Rendered from its .tmpl (versioned) and git-ignored: it carries this node's
+# tailnet hostname, which stays out of the repo.
+PASEO_CONFIG := paseo/.paseo/config.json
 
 .DEFAULT_GOAL := help
-.PHONY: install ensure-brew install-brew brew omz link relink unlink doctor help
+.PHONY: install ensure-brew install-brew brew omz paseo-config link relink unlink doctor help
 
 # link before omz so the stowed ~/.zshrc exists first (omz KEEP_ZSHRC keeps it).
 install: ensure-brew brew link omz ## full bootstrap: Homebrew + deps + symlinks + oh-my-zsh
@@ -34,12 +37,23 @@ omz: ## install oh-my-zsh + third-party zsh plugins (idempotent)
 		else echo "→ cloning $$name"; git clone --depth=1 "https://github.com/$$spec" "$$dir"; fi; \
 	done
 
-link: ## symlink all packages into $HOME
-	@mkdir -p "$(HOME)/.config"
+# Override the detected name with `make paseo-config TS_HOSTNAME=<host>`.
+paseo-config: ## render the paseo config from its template + this node's tailnet name
+	@host="$${TS_HOSTNAME:-$$(tailscale status --json 2>/dev/null | jq -r '.Self.DNSName // empty' | sed 's/\.$$//')}"; \
+	if [ -n "$$host" ]; then \
+		jq --arg h "$$host" '.daemon.hostnames += [$$h]' $(PASEO_CONFIG).tmpl > $(PASEO_CONFIG); \
+		echo "✓ paseo config (tailnet host: $$host)"; \
+	else \
+		cp $(PASEO_CONFIG).tmpl $(PASEO_CONFIG); \
+		echo "⚠ tailscale not running: paseo config has no tailnet hostname (rerun 'make paseo-config' later)"; \
+	fi
+
+link: paseo-config ## symlink all packages into $HOME
+	@mkdir -p "$(HOME)/.config" "$(HOME)/.paseo" "$(HOME)/Library/Application Support/Code/User"
 	stow --dir="$(STOW_DIR)" --target="$(HOME)" -v $(PACKAGES)
 
-relink: ## re-symlink packages (after adding/removing files)
-	@mkdir -p "$(HOME)/.config"
+relink: paseo-config ## re-symlink packages (after adding/removing files)
+	@mkdir -p "$(HOME)/.config" "$(HOME)/.paseo" "$(HOME)/Library/Application Support/Code/User"
 	stow --dir="$(STOW_DIR)" --target="$(HOME)" -Rv $(PACKAGES)
 
 unlink: ## remove all symlinks for every package

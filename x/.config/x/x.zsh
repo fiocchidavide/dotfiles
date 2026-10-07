@@ -103,6 +103,25 @@ x() {
 
 _x_init
 
+# Personal settings (usernames, 1Password references, …) live in a git-ignored
+# config.zsh next to this file; config.zsh.example documents every key.
+[[ -r $X_DIR/config.zsh ]] && source $X_DIR/config.zsh
+
+# Fail with a pointer to config.zsh unless every named setting is filled in.
+# Values still holding an `<placeholder>` from the example count as unset.
+#   _x_need_config X_FOO_USER X_FOO_PASSWORD_REF || return
+_x_need_config() {
+    local var
+    local -a unset_vars
+    for var in "$@"; do
+        [[ -z ${(P)var} || ${(P)var} == *'<'*'>'* ]] && unset_vars+=$var
+    done
+    (( ${#unset_vars} )) || return 0
+    print -u2 "❌ Missing setting(s): ${(j:, :)unset_vars}"
+    print -u2 "   Set them in ${X_DIR/#$HOME/~}/config.zsh (see config.zsh.example)."
+    return 1
+}
+
 # ============================================================================
 # completion for `x <subcommand> [args...]`
 # ============================================================================
