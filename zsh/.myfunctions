@@ -29,3 +29,4 @@ function ghidra() {
   fi
   "$bin" "$@"
 }
+
