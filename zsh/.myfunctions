@@ -9,7 +9,7 @@ source ~/.config/x/x.zsh
 # ============================================================================
 
 function mas() {
-  (cd ~/Code/MyAnimeSeason && uv run mas "$@")
+  (cd "$MAS_DIR" && uv run mas "$@")
 }
 
 # Launch Ghidra, auto-selecting the highest installed Cellar version so brew

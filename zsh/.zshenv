@@ -19,3 +19,7 @@ if [[ -d "$HOME/Library/pnpm" ]]; then
     *) export PATH="$PNPM_HOME/bin:$PATH" ;;
   esac
 fi
+
+# Project locations (layout described in $CODE_DIR/README.md)
+export CODE_DIR="$HOME/Code"
+export MAS_DIR="$CODE_DIR/Projects/MyAnimeSeason"
