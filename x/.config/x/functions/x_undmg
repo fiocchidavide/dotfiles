@@ -1,0 +1,32 @@
+## extract the contents of a .dmg into a folder (mount, ditto, detach)
+#@needs diskutil hdiutil ditto
+if [[ -z "$1" ]]; then
+    echo "Usage: x undmg <image.dmg> [output-dir]"
+    echo "  output-dir defaults to the image name without .dmg, next to it"
+    return 1
+fi
+local dmg="$1"
+local out="${2:-${dmg:r}}"
+if [[ ! -f "$dmg" ]]; then
+    echo "❌ No such file: $dmg"
+    return 1
+fi
+if [[ -e "$out" ]]; then
+    echo "❌ Output already exists: $out"
+    return 1
+fi
+
+# Private, unpredictable mount point rather than a fixed /tmp path.
+local mnt
+mnt=$(mktemp -d "${TMPDIR:-/tmp}/undmg.XXXXXX") || return 1
+local attached=0
+{
+    # --nobrowse: hidden from Finder. Image volumes mount nosuid,nodev anyway.
+    diskutil image attach --readOnly --nobrowse --mountPoint "$mnt" "$dmg" >/dev/null \
+        || { echo "❌ attach failed"; return 1; }
+    attached=1
+    ditto "$mnt" "$out" && echo "📦 Extracted to: $out"
+} always {
+    (( attached )) && hdiutil detach "$mnt" -quiet
+    rmdir "$mnt" 2>/dev/null
+}

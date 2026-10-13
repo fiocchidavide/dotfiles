@@ -145,7 +145,7 @@ _x() {
 
     # Fallback: complete file paths for commands that take one.
     case "${words[2]}" in
-        extrct|ocr|copypath) _files ;;
+        extrct|ocr|copypath|undmg) _files ;;
         *) ;;
     esac
 }
