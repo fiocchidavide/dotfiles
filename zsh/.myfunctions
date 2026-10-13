@@ -12,9 +12,22 @@ function mas() {
   (cd "$MAS_DIR" && uv run mas "$@")
 }
 
-# Launch Ghidra, auto-selecting the highest installed Cellar version so brew
-# upgrades don't break the path (numeric_glob_sort makes 12.10 > 12.2 etc).
+# Launch Ghidra, asking first whether the MCP bridge may run scripts.
 function ghidra() {
+  if read -q "?ghidra: allow MCP scripts? [y/N] "; then
+    print
+    GHIDRA_MCP_ALLOW_SCRIPTS=1 _ghidra "$@"
+  else
+    print
+    _ghidra "$@"
+  fi
+}
+
+# Non-interactive launcher: no prompt, scripts stay off unless the caller sets
+# GHIDRA_MCP_ALLOW_SCRIPTS=1 itself. Auto-selects the highest installed Cellar
+# version so brew upgrades don't break the path (numeric_glob_sort makes
+# 12.10 > 12.2 etc).
+function _ghidra() {
   emulate -L zsh
   setopt local_options numeric_glob_sort
   local -a versions=(/opt/homebrew/Cellar/ghidra/*(N/))
