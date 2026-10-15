@@ -1,0 +1,5 @@
+[user]
+	name = Davide
+	email = davidefiocchi2@gmail.com
+# Credentials: Git for Windows' own Git Credential Manager (credential.helper
+# = manager in its system config), which uses the Windows credential store.

@@ -1,6 +1,7 @@
 # dotfiles
 
-Personal macOS dotfiles, managed with [GNU Stow](https://www.gnu.org/software/stow/).
+Personal macOS dotfiles, managed with [GNU Stow](https://www.gnu.org/software/stow/),
+plus a native Windows setup in `windows/` — see [Windows](#windows).
 
 Each top-level directory is a **stow package** whose internal structure mirrors
 its location under `$HOME`. Stowing a package symlinks its files into `$HOME`,
@@ -21,6 +22,8 @@ runtime, so both work from any clone location.
 | `ghostty` | Ghostty terminal config | `~/Library/Application Support/com.mitchellh.ghostty/config.ghostty` |
 | `vscode`  | VS Code keybindings | `~/Library/Application Support/Code/User/keybindings.json` |
 | `claude`  | Global Claude Code instructions | `~/.claude/CLAUDE.md` |
+
+`windows/` is not a stow package (`make` skips it); see [Windows](#windows).
 
 > **Note on tree-folding:** if a directory doesn't exist in `$HOME` yet,
 > Stow by default "folds" it into one symlink into this repo (e.g.
@@ -96,3 +99,34 @@ cp x/.config/x/config.zsh.example x/.config/x/config.zsh   # then fill it in
 clone would load none of them.
 
 Still manual (see `Brewfile` comments): `webtorrent-cli` (pnpm).
+
+## Windows
+
+PowerShell 7 in Windows Terminal, set up to feel like the macOS shell:
+
+| macOS | Windows |
+| ----- | ------- |
+| Ghostty, *Material Design Colors*, 0.9 opacity + blur | Windows Terminal, same scheme, 90% opacity + acrylic |
+| JetBrains Mono (Ghostty's default) | JetBrainsMono Nerd Font |
+| zsh-autosuggestions, zsh-syntax-highlighting | PSReadLine inline predictions + highlighting |
+| fzf-tab | PSFzf: Tab, Ctrl+R history, Ctrl+T files |
+| Pure | Starship with the pure preset (`windows/starship.toml`) |
+| zoxide, fnm, uv, `mas` | the same |
+
+From a clone on Windows (Windows PowerShell 5.1 is enough to start):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File windows\install.ps1
+```
+
+It installs `windows/winget.json` with winget (the Brewfile counterpart),
+then continues in PowerShell 7; it is safe to re-run. Nothing is symlinked
+(that would need Developer Mode or admin) — each target is a stub pointing
+back into the clone, so edits here apply directly:
+
+| Target | Points at |
+| ------ | --------- |
+| PowerShell 7 profile (`$PROFILE.CurrentUserAllHosts`) | dot-sources `windows/powershell/profile.ps1` |
+| `~/.gitconfig` | `include.path` → `windows/git/.gitconfig` (credentials: Git Credential Manager) |
+| `~/.claude/CLAUDE.md` | `@`-imports `claude/.claude/CLAUDE.md` |
+| Windows Terminal `settings.json` | `windows/terminal/settings.json` merged in (scheme, font, opacity, default profile); the rest is left alone |

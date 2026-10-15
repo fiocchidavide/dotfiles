@@ -1,7 +1,8 @@
 # Dotfiles bootstrap.  Run `make help` to list targets.
-# Packages are auto-detected as the top-level directories in this repo.
+# Packages are auto-detected as the top-level directories in this repo,
+# except windows/, which is driven by windows/install.ps1 instead of stow.
 STOW_DIR := $(CURDIR)
-PACKAGES := $(patsubst %/,%,$(wildcard */))
+PACKAGES := $(filter-out windows,$(patsubst %/,%,$(wildcard */)))
 # Stow folds a directory missing from $HOME into a single symlink into the
 # repo, after which every other app writing there writes into this repo.
 # Packages are therefore stowed with --no-folding (real directories, one
