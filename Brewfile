@@ -12,7 +12,7 @@ brew "mupdf-tools"    # x extrct   (mutool)
 brew "m1ddc"          # x shine
 brew "openconnect"    # x connect
 brew "rclone"         # x serve webdav
-brew "uv"             # x ocr, mas
+brew "uv"             # x ocr, x datalab, mas
 
 # --- dotfiles / shell tooling ---
 brew "stow"           # dotfiles symlink management
@@ -22,7 +22,7 @@ brew "fzf"
 brew "pure"           # prompt
 
 # --- casks ---
-cask "1password-cli"  # x connect  (op)
+cask "1password-cli"  # x connect, x datalab  (op)
 cask "iina"           # x watch iina
 
 # --- not available via Homebrew (install manually) ---

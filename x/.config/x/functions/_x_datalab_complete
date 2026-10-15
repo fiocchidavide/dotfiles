@@ -1,0 +1,14 @@
+# Completion hook for `x datalab …`; words[3] is the subcommand.
+local -a subcmds=(
+    'convert:convert documents (accurate, all output formats)'
+)
+
+if (( CURRENT == 3 )); then
+    _describe 'subcommand' subcmds
+    return
+fi
+
+[[ ${words[3]} == convert ]] && _arguments \
+    '-o[output directory]:directory:_files -/' \
+    '-p[page range, e.g. 0-2,4]:range:' \
+    '*:document:_files'

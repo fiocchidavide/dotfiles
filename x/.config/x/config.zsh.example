@@ -27,3 +27,6 @@ X_EPFL_OTP_REF="op://<vault>/<item>/one-time password?attribute=otp"
 X_WEBDAV_USER="$USER"
 X_WEBDAV_PASSWORD_REF="op://<vault>/<item>/password"
 X_WEBDAV_DIR="$HOME/WebDAV"
+
+# --- x datalab --------------------------------------------------------------
+X_DATALAB_API_KEY_REF="op://<vault>/<item>/credential"

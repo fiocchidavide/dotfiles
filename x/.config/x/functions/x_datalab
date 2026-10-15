@@ -1,0 +1,117 @@
+## convert documents with Datalab (accurate, all output formats)
+#@needs op uv
+# Usage:
+#   x datalab convert [-o outdir] [-p page_range] FILE...
+#
+# Accurate mode, paginated, page headers and footers kept. Saves every format
+# per file into <outdir>/<name>/: .md, .html, .json, .chunks.json,
+# .metadata.json and the extracted images (outdir defaults to ./output).
+# Shows elapsed time while each file converts; the API reports no percentage.
+#
+# The API key reference comes from ~/.config/x/config.zsh
+# (X_DATALAB_API_KEY_REF) and is read from 1Password per call, never exported.
+
+emulate -L zsh
+
+_x_datalab_convert() {
+    local -a o_out o_pages
+    zparseopts -D -E -F -- o:=o_out p:=o_pages || return 1
+    if (( ! $# )); then
+        print -u2 "Usage: x datalab convert [-o outdir] [-p page_range] FILE..."
+        return 1
+    fi
+    _x_need_config X_DATALAB_API_KEY_REF || return
+
+    local key
+    key=$(op read "$X_DATALAB_API_KEY_REF")
+    if [[ -z "$key" ]]; then
+        print -u2 "❌ Failed to retrieve the Datalab API key from 1Password."
+        return 1
+    fi
+
+    DATALAB_API_KEY=$key X_DATALAB_OUT=${o_out[2]:-output} X_DATALAB_PAGES=${o_pages[2]} \
+        uv run --quiet --no-project --with datalab-python-sdk python - "$@" <<'PY'
+import os, sys, threading, time
+from pathlib import Path
+from datalab_sdk import ConvertOptions, DatalabClient
+
+options = ConvertOptions(
+    mode="accurate",
+    output_format="markdown,html,json,chunks",
+    paginate=True,
+    page_range=os.environ["X_DATALAB_PAGES"] or None,
+    additional_config={
+        "keep_pageheader_in_output": True,
+        "keep_pagefooter_in_output": True,
+    },
+)
+
+
+class Ticker:
+    """Show elapsed time while a conversion runs: a spinner on a terminal,
+    a log line every 30s otherwise. The API reports no percentage."""
+
+    def __init__(self, label):
+        self.label, self.done = label, threading.Event()
+        self.thread = threading.Thread(target=self.run, daemon=True)
+
+    def run(self):
+        t0, tty, i = time.monotonic(), sys.stderr.isatty(), 0
+        while not self.done.wait(0.1 if tty else 30):
+            m, s = divmod(int(time.monotonic() - t0), 60)
+            if tty:
+                print(f"\r\033[K{self.label} {'⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'[i % 10]} converting {m}:{s:02}",
+                      end="", file=sys.stderr, flush=True)
+                i += 1
+            else:
+                print(f"{self.label} still converting ({m}:{s:02})", file=sys.stderr)
+        if tty:
+            print("\r\033[K", end="", file=sys.stderr, flush=True)
+
+    def __enter__(self):
+        self.thread.start()
+
+    def __exit__(self, *exc):
+        self.done.set()
+        self.thread.join()
+
+
+client = DatalabClient()
+files = [Path(a) for a in sys.argv[1:]]
+failed = 0
+for n, f in enumerate(files, 1):
+    label = f"[{n}/{len(files)}] {f.name}"
+    dest = Path(os.environ["X_DATALAB_OUT"]) / f.stem
+    dest.mkdir(parents=True, exist_ok=True)
+    t0 = time.monotonic()
+    try:
+        with Ticker(label):
+            result = client.convert(f, options=options)
+    except Exception as e:
+        result = None
+        error = e
+    took = int(time.monotonic() - t0)
+    if result is None or not result.success:
+        print(f"{label}: failed after {took}s: {error if result is None else result.error}",
+              file=sys.stderr)
+        failed += 1
+        continue
+    result.save_output(dest / f.stem)
+    print(f"{label} -> {dest}/ ({result.page_count} pages, {took}s)")
+sys.exit(1 if failed else 0)
+PY
+}
+
+case "${1:-}" in
+    convert)   shift; _x_datalab_convert "$@" ;;
+    ""|-h|--help|help)
+        print "Usage: x datalab convert [-o outdir] [-p page_range] FILE..."
+        print "  -o outdir      where results go (default ./output)"
+        print "  -p page_range  e.g. 0-2,4 (default: all pages)"
+        [[ -n "${1:-}" ]] || return 1
+        ;;
+    *)
+        print -u2 "❌ Unknown subcommand '$1'. Try: x datalab convert"
+        return 1
+        ;;
+esac
