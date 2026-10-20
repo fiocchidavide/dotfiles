@@ -1,4 +1,5 @@
 ## create/destroy stacked APFS RAM disks (multiplexed)
+#@needs diskutil hdiutil
 # Multiplexed APFS RAM disks. State is derived from what's actually mounted
 # (dirs matching /Volumes/RAMDisk<N>) rather than a separate stack file, so it
 # stays correct across crashes/reboots.

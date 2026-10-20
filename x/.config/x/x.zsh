@@ -339,7 +339,7 @@ _x_pv() {
         return
     fi
     uv run --quiet --no-project python -I $X_DIR/lib/xstream.py meter \
-        --size ${size[2]:-0} --label "${name[2]:-}"
+        --size ${size[2]:-0} --label="${name[2]:-}"
 }
 
 # _x_ask <var> <prompt> [-s]: read a line from the terminal (stdin when there

@@ -41,7 +41,15 @@ shift $(( s - 1 )) words
 (( CURRENT -= s - 1 ))
 
 case $sub in
-    client) (( CURRENT == 2 )) && compadd new || { shift words; (( CURRENT-- )); _arguments '--scope[OAuth scope]:scope:(drive.file drive drive.readonly drive.appfolder drive.metadata.readonly)' '--use-for[what the remote is for]:text:' '1:name:_guard "^-*" "name"' } ;;
+    client)
+        if (( CURRENT == 2 )); then
+            compadd new
+        else
+            shift words
+            (( CURRENT-- ))
+            _arguments '--scope[OAuth scope]:scope:(drive.file drive drive.readonly drive.appfolder drive.metadata.readonly)' '--use-for[what the remote is for]:text:' '1:name:_guard "^-*" "name"'
+        fi
+        ;;
     up)     _arguments '-d[Drive folder to upload into]:folder:' '--move[delete local copies after upload]' '*:local file:_files' ;;
     down)   _arguments '-C[local folder to download into]:directory:_files -/' '*:Drive path:' ;;
     ls)     _arguments '-R[recursive]' '1:Drive folder:_guard "^-*" "Drive folder"' ;;

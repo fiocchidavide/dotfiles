@@ -18,8 +18,6 @@ prompt pure
 
 source ~/.myfunctions
 
-# fnm
-eval "$(fnm env --use-on-cd --shell zsh)"
-
-# zoxide
-eval "$(zoxide init zsh)"
+# fnm and zoxide, where installed (a fresh machine before make brew lacks them)
+(( $+commands[fnm] )) && eval "$(fnm env --use-on-cd --shell zsh)"
+(( $+commands[zoxide] )) && eval "$(zoxide init zsh)"

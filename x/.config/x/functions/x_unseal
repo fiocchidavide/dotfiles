@@ -83,7 +83,7 @@ local xstream=(uv run --quiet --no-project python -I $X_DIR/lib/xstream.py)
 local pfd rc=0 t0=$EPOCHREALTIME
 _x_unseal_decrypt() {
     exec {pfd}< <(print -r -- $pass)
-    { [[ $src == - ]] && cat || cat -- $src } |
+    if [[ $src == - ]]; then cat; else cat -- $src; fi |
         _x_pv -s "$size" -N $label |
         AGE_PASSPHRASE_FD=$pfd age -d -j batchpass |
         $decompress
@@ -120,7 +120,10 @@ _x_step "Unsealing $label → ${dest/#$HOME/~}"
 } always {
     # Also on Ctrl-C: no half-extracted folder left behind.
     (( pfd )) && exec {pfd}<&-
-    (( extracted )) || rm -rf -- $stage
+    if (( ! extracted )); then
+        chmod -R u+w -- $stage 2>/dev/null
+        rm -rf -- $stage
+    fi
 }
 if (( rc )); then
     _x_err "Unsealing $label failed; nothing was extracted."

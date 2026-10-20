@@ -1,11 +1,11 @@
 ## stream a torrent/url in iina, optionally buffered in RAM
 #@needs webtorrent
 #@needs-optional iina fzf
-# Usage: x watch [player] [--ram[=SIZEgb]] [webtorrent flags] <url-or-magnet>
+# Usage: x watch [player] [--ram[=GiB]] [webtorrent flags] <url-or-magnet>
 #   x watch <url-or-magnet>            -> plays in IINA (default)
 #   x watch iina <url-or-magnet>       -> same, player named explicitly
 #   x watch --ram <url-or-magnet>      -> buffers on a RAM disk instead of SSD
-#   x watch --ram=16gb <url-or-magnet> -> same, with a custom RAM disk size
+#   x watch --ram=16G <url-or-magnet>  -> same, with a custom RAM disk size (GiB)
 #   x watch -s <url-or-magnet>         -> list the torrent's files, with indices
 #   x watch -s 3 <url-or-magnet>       -> stream file 3 (indices are 0-based)
 #   x watch -i <url-or-magnet>         -> pick that file with an fzf picker
@@ -28,7 +28,7 @@
 # are buffered in RAM instead of the SSD's temp folder. Each run gets its own
 # numbered disk, so concurrent `x watch --ram` invocations don't collide.
 # The disk is torn down automatically when playback ends (an always block),
-# including on Ctrl-C. Default size is 8GiB; override with --ram=<size>[gb].
+# including on Ctrl-C. Default size is 8GiB; override with --ram=<size>[G|GiB].
 #
 # IINA, formerly a workaround: webtorrent's --iina invokes
 # `open iina://weblink?url=<href>` with <href> already URL-encoded. We used to
@@ -57,6 +57,7 @@ local player="iina"
 local ram_enabled=0
 local ram_size=8
 local interactive_pick=0
+local list_only=0     # a bare -s: list the files, stream nothing
 local -a pos=()      # positionals: [player] <url-or-magnet>
 local -a wt_args=()  # everything else, forwarded to webtorrent
 # webtorrent flags whose value is a separate argument; without this list the
@@ -66,7 +67,7 @@ local -a wt_valued=(
     -d --download-limit -u --upload-limit --player-args --torrent-port
     --dht-port --on-done --on-exit
 )
-local usage="x watch [player] [--ram[=SIZEgb]] [webtorrent flags] <url-or-magnet>"
+local usage="x watch [player] [--ram[=GiB]] [webtorrent flags] <url-or-magnet>"
 
 while (( $# )); do
     case "$1" in
@@ -74,7 +75,13 @@ while (( $# )); do
         --ram=*)
             ram_enabled=1
             ram_size="${1#--ram=}"
-            ram_size="${ram_size%%[gG][bB]}"
+            # 16, 16G, 16gb, 16GiB: all GiB.
+            if [[ $ram_size =~ '^([0-9]+)([gG][iI]?[bB]?)?$' ]]; then
+                ram_size=$match[1]
+            else
+                _x_err "--ram takes a size in GiB, e.g. --ram=16 or --ram=16G."
+                return 1
+            fi
             ;;
         -s|--select)
             # --select's value is optional: a bare -s lists the torrent's
@@ -83,6 +90,8 @@ while (( $# )); do
             if [[ "$2" == <-> ]]; then
                 wt_args+=("$2")
                 shift
+            else
+                list_only=1
             fi
             ;;
         -i|--interactive-select)
@@ -206,6 +215,8 @@ if (( interactive_pick )); then
 fi
 
 local -a wt_out=()
+# A bare -s only lists the files: nothing is buffered, so no RAM disk.
+(( ram_enabled && list_only )) && ram_enabled=0
 if (( ram_enabled )); then
     _x_step "Creating a ${ram_size}GiB RAM disk for the streaming buffer"
     # Multiplexed: create a fresh disk and capture its own mount point, so

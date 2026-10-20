@@ -69,7 +69,7 @@ _x_gdrive_run() {
     if _x_fancy && (( ! ${X_QUIET:-0} )); then
         { rclone $sub --use-json-log --stats 500ms --stats-log-level NOTICE \
               --log-level NOTICE "$@" 2>&1 1>&3 3>&- |
-            uv run --quiet --no-project python -I $X_DIR/lib/xstream.py rclonebar --label $label
+            uv run --quiet --no-project python -I $X_DIR/lib/xstream.py rclonebar --label=$label
         } 3>&1
     else
         rclone $sub --quiet "$@"

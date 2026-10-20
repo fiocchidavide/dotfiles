@@ -25,7 +25,7 @@ age_sha256() {
     esac
 }
 
-if [ -t 2 ]; then
+if [ -t 2 ] && [ -z "${NO_COLOR:-}" ]; then
     bold=$'\e[1m' dim=$'\e[2m' green=$'\e[32m' red=$'\e[31m' reset=$'\e[0m'
 else
     bold='' dim='' green='' red='' reset=''
@@ -33,6 +33,7 @@ fi
 step() { printf '%s▸ %s%s\n' "$bold" "$*" "$reset" >&2; }
 ok()   { printf '%s✔%s %s\n' "$green" "$reset" "$*" >&2; }
 die()  { printf '%s✘ %s%s\n' "$red" "$*" "$reset" >&2; exit 1; }
+present() { [ -e "$1" ] || [ -L "$1" ]; }
 ask()  { # ask <question> [default y|n]
     local reply hint='[y/N]'
     [ "${2:-n}" = y ] && hint='[Y/n]'
@@ -88,7 +89,11 @@ main() {
     stage=''
     cleanup() {
         rm -rf "$tmp"
-        if [ -n "$stage" ]; then rm -rf "$stage" 2>/dev/null || true; fi
+        if [ -n "$stage" ]; then
+            # An archive can hold read-only folders, which rm -rf can't empty.
+            chmod -R u+w "$stage" 2>/dev/null || true
+            rm -rf "$stage" 2>/dev/null || true
+        fi
     }
     trap cleanup EXIT
 
@@ -125,8 +130,9 @@ main() {
     exec 3<&-
     ok "Decrypted and checked (any tampering would have stopped it)"
 
-    for entry in "$stage"/* "$stage"/.[!.]*; do
-        [ -e "$entry" ] && items+=("$(basename "$entry")")
+    # .[!.]* and ..?* together match every dotfile but . and ..
+    for entry in "$stage"/* "$stage"/.[!.]* "$stage"/..?*; do
+        if present "$entry"; then items+=("$(basename "$entry")"); fi
     done
     [ ${#items[@]} -gt 0 ] || die "The archive was empty."
 
@@ -134,7 +140,7 @@ main() {
     for item in "${items[@]}"; do
         size=$(du -sh "$stage/$item" 2>/dev/null | cut -f1)
         note=''
-        [ -e "$dest/$item" ] && note=" ${red}(replaces the existing one)${reset}"
+        if present "$dest/$item"; then note=" ${red}(replaces the existing one)${reset}"; fi
         printf '  %s %s(%s)%s%s\n' "$item" "$dim" "$size" "$reset" "$note" >&2
     done
     echo >&2
@@ -142,7 +148,7 @@ main() {
 
     [ -w "$dest" ] || { sudo=sudo; step "$dest needs administrator rights (sudo)"; }
     for item in "${items[@]}"; do
-        [ -e "$dest/$item" ] && $sudo rm -rf "$dest/$item"
+        if present "$dest/$item"; then $sudo rm -rf "$dest/$item"; fi
         $sudo mv "$stage/$item" "$dest/$item"
         ok "$dest/$item"
     done

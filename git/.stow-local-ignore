@@ -1,3 +1,9 @@
 # Files stow should NOT symlink into $HOME.
 # NOTE: defining this file overrides stow's built-in default ignore list.
 \.DS_Store
+# Editor swap/backup/lock files (Stow's default list, which this replaces,
+# covered these; .gitignore only hides them from git, not from stow).
+.+\.sw[po]
+.+~
+\.\#.+
+\#.*\#
