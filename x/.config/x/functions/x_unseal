@@ -30,10 +30,15 @@ if (( $#f_check && $# == 2 )); then
     expect=$1; shift
 fi
 if (( $#f_help || $# != 1 )); then
-    _x_usage "x unseal [--name N | -p - | -P] [-C dir] [-q] <file.age | ->" \
+    _x_usage ${f_help:+-o} "x unseal [--name N | -p - | -P] [-C dir] [-q] <file.age | ->" \
         "x unseal … -O <file.age | ->                 tar stream to stdout" \
         "x unseal … --check [sha256] <file.age | ->   verify only"
     return $(( ! $#f_help ))
+fi
+# Secrets are only ever read from stdin: -p takes "-", nothing else.
+if (( ${#o_pass} )) && [[ ${o_pass[2]} != - ]]; then
+    _x_err "-p only takes - (the passphrase on stdin), never the value itself."
+    return 1
 fi
 local src=$1
 if [[ $src != - && ! -f $src ]]; then
@@ -125,7 +130,7 @@ _x_step "Unsealing $label → ${dest/#$HOME/~}"
     # Also on Ctrl-C: no half-extracted folder left behind.
     (( pfd )) && exec {pfd}<&-
     if (( ! extracted )); then
-        chmod -R u+w -- $stage 2>/dev/null
+        chmod -R u+w ${stage:a} 2>/dev/null     # macOS chmod has no --; :a keeps a - off the front
         rm -rf -- $stage
     fi
 }

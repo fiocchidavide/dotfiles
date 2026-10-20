@@ -28,9 +28,14 @@ if (( $#o_selftest )); then
 fi
 
 if (( $#f_help || $# != 2 )); then
-    _x_usage "x kdf [-P purpose] [-m -] <keyid> <name>" \
+    _x_usage ${f_help:+-o} "x kdf [-P purpose] [-m -] <keyid> <name>" \
         "x kdf --selftest    check HKDF against RFC 5869"
     return $(( ! $#f_help ))
+fi
+# Secrets are only ever read from stdin: -m takes "-", nothing else.
+if (( ${#o_master} )) && [[ ${o_master[2]} != - ]]; then
+    _x_err "-m only takes - (the master key on stdin), never the value itself."
+    return 1
 fi
 local id=$1 name=$2 purpose=${o_purpose[2]:-file}
 if [[ $id != [a-z2-7](#c6) ]]; then

@@ -1,5 +1,9 @@
 ## scaffold a new command file and open it in $EDITOR
 emulate -L zsh
+if [[ $1 == (-h|--help) ]]; then
+    _x_usage -o "x new <name>" "create functions/x_<name> from a template and open it in \$EDITOR"
+    return 0
+fi
 local name="$1"
 [[ -z $name ]] && { _x_usage "x new <name>"; return 1; }
 [[ $name =~ '^[A-Za-z_][A-Za-z0-9_-]*$' ]] ||

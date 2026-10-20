@@ -213,7 +213,8 @@ def cmd_rclonebar(args) -> int:
             if record.get("msg", "").strip():
                 if drawn:
                     out.write("\r\033[K")
-                out.write(f"{record.get('level', '')}: {record['msg'].strip()}\n")
+                level = record.get("level", "")
+                out.write(f"{level + ': ' if level else ''}{record['msg'].strip()}\n")
             continue
         if tty:
             draw_bar(out, args.label, stats.get("bytes", 0), stats.get("totalBytes", 0),
@@ -231,8 +232,8 @@ def cmd_meter(args) -> int:
     src, dst, out = sys.stdin.buffer, sys.stdout.buffer, sys.stderr
     tty = out.isatty()
     total = args.size if args.size and args.size > 0 else 0
-    done, speed = 0, 0.0
-    t0 = last_t = now = time.monotonic()
+    done, speed, drawn = 0, 0.0, False
+    last_t = time.monotonic()
     last_done = 0
     while chunk := src.read(CHUNK):
         dst.write(chunk)
@@ -243,9 +244,10 @@ def cmd_meter(args) -> int:
             speed = rate if not speed else 0.8 * speed + 0.2 * rate
             eta = (total - done) / speed if total and speed and total > done else None
             draw_bar(out, args.label, done, max(total, done) if total else 0, speed, eta)
+            drawn = True
             last_t, last_done = now, done
     dst.flush()
-    if tty and now - t0 >= 0.2:
+    if drawn:
         out.write("\r\033[K")
         out.flush()
     return 0

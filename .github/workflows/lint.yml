@@ -56,3 +56,7 @@ jobs:
 
       - name: Seal, verify and unseal a small tree
         run: zsh -f .github/scripts/roundtrip.zsh
+
+      # open.sh fetches its own pinned, checksummed age from GitHub.
+      - name: Open a share the way a friend would (open.sh)
+        run: zsh -f .github/scripts/open-share.zsh

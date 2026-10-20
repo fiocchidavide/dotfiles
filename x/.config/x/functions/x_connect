@@ -109,7 +109,7 @@ case "${1:-}" in
     epfl)             _x_connect_epfl ;;
     off|down|d|disconnect) _x_connect_off ;;
     -h|--help|help)
-        _x_usage "x connect <eth|epfl|off>" \
+        _x_usage -o "x connect <eth|epfl|off>" \
             "eth    ETH Zurich VPN (sslvpn.ethz.ch, student-net)" \
             "epfl   EPFL VPN (vpn.epfl.ch)" \
             "off    disconnect the current session"

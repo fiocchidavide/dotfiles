@@ -5,6 +5,10 @@
 emulate -L zsh
 # Rows are composed in $(…), where stdout is a pipe: decide colour here.
 local X_FANCY_OUT; _x_fancy 1 && X_FANCY_OUT=1
+if [[ $1 == (-h|--help) ]]; then
+    _x_usage -o "x doctor [command]" "check declared dependencies (#@needs), of one command or all"
+    return 0
+fi
 
 local only="$1"
 local -a missing_all
@@ -66,7 +70,21 @@ if (( ${#missing_all} )); then
     missing_all=( ${(u)missing_all} )   # de-duplicate
     _x_err "Missing required: ${(j:, :)missing_all}"
     local brewfile=${X_DIR:h:h:h}/Brewfile
-    [[ -f $brewfile ]] && _x_info "Try: brew bundle --file=${brewfile/#$HOME/~}"
+    if [[ -f $brewfile ]]; then
+        # The Brewfile's "not available via Homebrew" section says how to get
+        # the rest: "#   webtorrent-cli   ->  pnpm add -g webtorrent-cli".
+        local -a via_brew=()
+        local hint
+        for b in $missing_all; do
+            hint=$(sed -nE "s/^#   ${b}[-a-z]* +-> +(.*[^ ]) +\(x .*$/\1/p" $brewfile | head -1)
+            if [[ -n $hint ]]; then
+                _x_info "$b: $hint"
+            else
+                via_brew+=$b
+            fi
+        done
+        (( $#via_brew )) && _x_info "Try: brew bundle --file=${brewfile/#$HOME/~}"
+    fi
     return 1
 fi
 

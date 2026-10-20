@@ -64,14 +64,15 @@ make install    # brew + link + oh-my-zsh
 Or drive stow directly:
 
 ```sh
-stow -nv x      # dry run: preview the symlinks
-stow x          # link
-stow -D x       # unlink
-stow -R x       # relink
+stow -nv --no-folding zsh   # dry run: preview the symlinks
+stow --no-folding zsh       # link (always --no-folding, see the note above)
+stow -D zsh                 # unlink
+stow -R --no-folding zsh    # relink
+mkdir -p ~/.config && stow x   # x is the one package that folds
 ```
 
-Adding a new package: create `pkg/<path-under-home>/…`, then `stow pkg`
-(or `make relink`). Per-package `.stow-local-ignore` files list paths stow
+Adding a new package: create `pkg/<path-under-home>/…`, then
+`stow --no-folding pkg` (or `make relink`). Per-package `.stow-local-ignore` files list paths stow
 should skip (e.g. `.DS_Store`).
 
 ## Dependencies

@@ -38,6 +38,8 @@ local state=${XDG_STATE_HOME:-$HOME/.local/state}/x/vault
 local index=$state/index.jsonl
 local xstream=(uv run --quiet --no-project python -I $X_DIR/lib/xstream.py)
 local xv_remote_index="" xv_remote_mtime="" xv_current=""
+# jq: "$HOME/…" -> "~/…", as a literal prefix (needs --arg home $HOME).
+local jq_tilde='def tilde: if . == $home or startswith($home + "/") then "~" + .[($home | length):] else . end;'
 local R S
 
 # --- setup -------------------------------------------------------------------
@@ -314,9 +316,14 @@ _x_vault_offer_delete() {
     p=$(jq -r .path <<<$entry)
     ref=$state/refs/$name.ref
     # Anything under p modified since the ref was touched (just before sealing)?
-    _x_vault_changed() { [[ -e $ref && -n $(find $p \( -newer $ref -o -cnewer $ref \) -print -quit 2>/dev/null) ]] }
+    # A ref that has gone missing counts as changed.
+    _x_vault_changed() { [[ ! -e $ref || -n $(find $p \( -newer $ref -o -cnewer $ref \) -print -quit 2>/dev/null) ]] }
     {
         [[ -e $p ]] || return 0
+        if [[ ! -e $ref ]]; then
+            _x_info "Can't tell whether ${p/#$HOME/~} changed since it was sealed; keeping it."
+            return 0
+        fi
         if _x_vault_changed; then
             _x_warn "${p/#$HOME/~} changed after it was sealed; keeping it."
             return 0
@@ -433,7 +440,7 @@ _x_vault_push_select() {
     else
         chosen=(${(f)"$(for meta in $all; do
                 jq -r --arg f $meta --arg size "$(_x_bytes $(jq -r .size $meta))" --arg home $HOME \
-                    '"\($f)\t\(.path | split("/") | last)\t\($size)\t\(.created[0:10])\t\(.path | sub("^" + $home; "~"))"' $meta
+                    "$jq_tilde"'"\($f)\t\(.path | split("/") | last)\t\($size)\t\(.created[0:10])\t\(.path | tilde)"' $meta
             done |
             fzf --multi --delimiter=$'\t' --with-nth=2.. --tabstop=2 \
                 --header='Tab: mark · Enter: push marked (or the current one) · Esc: cancel' \
@@ -636,7 +643,9 @@ _x_vault_rekey() {
     local -A wanted
     local a n
     for a in "$@"; do
-        for n in $(_x_vault_find $a); do wanted[$n]=1; done
+        local -a found=($(_x_vault_find $a))
+        (( $#found )) || _x_warn "No archive matches '$a'."
+        for n in $found; do wanted[$n]=1; done
     done
 
     local name key created size p m hit
@@ -664,8 +673,15 @@ _x_vault_rekey() {
             _x_err "-i needs fzf."
             return 1
         fi
-        chosen=(${(f)"$(for n in $chosen; do _x_vault_entry $n | jq -r '"\(.name)\t\(.key)\t\(.path)"'; done |
-            fzf --multi --delimiter=$'\t' --with-nth=2,3 --prompt="rekey to $to> " |
+        local e
+        chosen=(${(f)"$(for n in $chosen; do
+                e=$(_x_vault_entry $n)
+                jq -r --arg size "$(_x_bytes $(jq -r .size <<<$e))" --arg home $HOME "$jq_tilde"'
+                    "\(.name)\t\(.path | split("/") | last)\t\(.key)\t\($size)\t\(.created[0:10])\t\(.path | tilde)"' <<<$e
+            done |
+            fzf --multi --delimiter=$'\t' --with-nth=2.. --tabstop=2 \
+                --header='Tab: mark · Enter: rekey marked (or the current one) · Esc: cancel' \
+                --prompt="rekey to $to > " --height=~50% --reverse |
             cut -f1)"})
         # Esc in fzf, as in x vault push: a choice not made, not "nothing to do".
         if (( ! $#chosen )); then
@@ -682,7 +698,7 @@ _x_vault_rekey() {
 
     _x_step "${#chosen} archive(s), $(_x_bytes $total), to key $to"
     for n in $chosen; do
-        _x_vault_entry $n | jq -r --arg home $HOME '"  \(.key)  \(.path | sub("^" + $home; "~"))"'
+        _x_vault_entry $n | jq -r --arg home $HOME "$jq_tilde"'"  \(.key)  \(.path | tilde)"'
     done >&2
     if (( $#f_dry )); then
         _x_info "Dry run; nothing changed."
@@ -785,7 +801,7 @@ _x_vault_rm() {
     local -i total=0
     _x_step "${#names} archive(s) to delete from Drive:"
     for n in $names; do
-        _x_vault_entry $n | jq -r --arg home $HOME '"  \(.created[0:10])  \(.key)  \(.path | sub("^" + $home; "~"))"' >&2
+        _x_vault_entry $n | jq -r --arg home $HOME "$jq_tilde"'"  \(.created[0:10])  \(.key)  \(.path | tilde)"' >&2
         (( total += $(_x_vault_entry $n | jq -r .size) ))
     done
     _x_info "$(_x_bytes $total) on Drive. Originals on this Mac are not touched."
@@ -824,6 +840,11 @@ _x_vault_check() {
     on_drive=(${(f)"$(jq -r '.[] | select(.IsDir | not) | .Name
         | select(test("^[a-z2-7]{6}\\.[a-z2-7]{26}\\.age$")) | rtrimstr(".age")' <<<$listing)"})
     in_index=(${(f)"$(jq -r .name $index)"})
+    local -a indexes=(${(f)"$(jq -r '.[] | .Name | select(test("^[a-z2-7]{6}\\.index\\.age$"))' <<<$listing)"})
+    if (( $#indexes > 1 )); then
+        _x_warn "${#indexes} index files on Drive (${(j:, :)indexes}); the newest, $xv_remote_index, is the one in use."
+        _x_info "Remove the others with: x gdrive -r $xv_remote rm $R/<name>"
+    fi
     orphans=(${on_drive:|in_index})
     missing=(${in_index:|on_drive})
     _x_info "${#in_index} archive(s) in the index, ${#on_drive} on Drive"

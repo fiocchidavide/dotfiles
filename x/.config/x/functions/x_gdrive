@@ -243,6 +243,8 @@ _x_gdrive_ls() {
     while IFS=$'\t' read -r isdir size mtime p; do
         if [[ $isdir == true ]]; then
             printf '%10s  %s  %s/\n' "-" "${mtime/T/ }" "$p"
+        elif (( size < 0 )); then     # Google Docs, Sheets, Slides: no size (-1)
+            printf '%10s  %s  %s\n' "-" "${mtime/T/ }" "$p"
         else
             printf '%10s  %s  %s\n' "$(_x_bytes $size)" "${mtime/T/ }" "$p"
         fi

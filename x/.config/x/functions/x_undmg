@@ -1,6 +1,10 @@
 ## extract the contents of a .dmg into a folder (mount, ditto, detach)
 #@needs diskutil hdiutil ditto
 emulate -L zsh
+if [[ $1 == (-h|--help) ]]; then
+    _x_usage -o "x undmg <image.dmg> [output-dir]" "output-dir defaults to the image name without .dmg, next to it"
+    return 0
+fi
 if [[ -z "$1" ]]; then
     _x_usage "x undmg <image.dmg> [output-dir]" \
         "output-dir defaults to the image name without .dmg, next to it"

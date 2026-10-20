@@ -1,6 +1,10 @@
 ## copy the absolute path of a file to clipboard
 #@needs pbcopy
 emulate -L zsh
+if [[ $1 == (-h|--help) ]]; then
+    _x_usage -o "x copypath <file>"
+    return 0
+fi
 if [[ -z "$1" ]]; then
     _x_usage "x copypath <file>"
     return 1

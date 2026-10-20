@@ -2,7 +2,7 @@
 #@needs curl aunpack
 emulate -L zsh
 if [[ -z "$1" || $1 == (-h|--help|help) ]]; then
-    _x_usage "x dw <url>"
+    _x_usage ${1:+-o} "x dw <url>"
     [[ -n "$1" ]] && return 0
     return 1
 fi

@@ -148,7 +148,7 @@ list|ls)
     ;;
 
 ""|-h|--help|help)
-    _x_usage "x ramdisk create | destroy | list" \
+    _x_usage ${cmd:+-o} "x ramdisk create | destroy | list" \
         "create <size_in_GiB>          create the next disk (RAMDisk0, RAMDisk1, …)" \
         "destroy [<index>|<mp>|all]    destroy top of stack (LIFO), a specific one, or all" \
         "list                          list mounted RAM disks"

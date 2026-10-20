@@ -37,10 +37,15 @@ zparseopts -D -E -F -- k:=o_key -name:=o_name o:=o_out L:=o_level p:=o_pass \
 (( $#f_quiet )) && local X_QUIET=1
 
 if (( $#f_help || $# != 1 )); then
-    _x_usage "x seal [-k keyid] [--name N] [-o out] [-L level] [-z gzip] [--no-pad] [--portable] [--meta F] [-q] <path>" \
+    _x_usage ${f_help:+-o} "x seal [-k keyid] [--name N] [-o out] [-L level] [-z gzip] [--no-pad] [--portable] [--meta F] [-q] <path>" \
         "x seal --random [-o out] … <path>    fresh random key, printed" \
         "x seal -p - [-o out] … <path>        passphrase on stdin"
     return $(( ! $#f_help ))
+fi
+# Secrets are only ever read from stdin: -p takes "-", nothing else.
+if (( ${#o_pass} )) && [[ ${o_pass[2]} != - ]]; then
+    _x_err "-p only takes - (the passphrase on stdin), never the value itself."
+    return 1
 fi
 local src=${1%/}
 if [[ ! -e $src ]]; then
@@ -175,7 +180,11 @@ _x_info $sizes
 
 if [[ $mode == random ]]; then
     _x_warn "Random passphrase, stored nowhere. Copy it now:"
-    print -r -- $pass
+    if [[ $out == - ]]; then
+        print -u2 -r -- $pass      # stdout is the archive itself
+    else
+        print -r -- $pass
+    fi
 elif [[ $out != - ]]; then
     print -r -- $out
 fi

@@ -15,6 +15,9 @@ STOW := stow --dir="$(STOW_DIR)" --target="$(HOME)"
 # Resolve brew up front, falling back to the Apple-Silicon default path so a
 # freshly installed Homebrew (not yet on PATH) is still found within `make`.
 BREW := $(shell command -v brew 2>/dev/null || echo /opt/homebrew/bin/brew)
+# And what brew installs (stow, for `link`) must be found by the targets
+# that run after `brew` in the same `make install`.
+export PATH := $(patsubst %/,%,$(dir $(BREW))):$(PATH)
 ZSH_CUSTOM ?= $(HOME)/.oh-my-zsh/custom
 
 .DEFAULT_GOAL := help

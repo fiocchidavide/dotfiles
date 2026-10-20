@@ -1,3 +1,7 @@
 # Completion hook: `x edit <TAB>` -> existing command names.
-local -a cmds=( ${(ok)X_DESCRIPTIONS} )
+local -a cmds
+local key
+for key in ${(ok)X_DESCRIPTIONS}; do
+    cmds+=("$key:${X_DESCRIPTIONS[$key]}")
+done
 (( CURRENT == 3 )) && _describe 'command' cmds

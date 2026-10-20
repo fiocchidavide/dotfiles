@@ -93,7 +93,7 @@ your `-q` to it) silences everything but warnings and errors.
 |---|---|
 | `_x_step` / `_x_info` | doing something (bold) / a detail or hint (dim) |
 | `_x_ok` / `_x_warn` / `_x_err` | it worked / worth knowing / it failed |
-| `_x_usage "x foo <arg>" [detail…]` | `Usage:` line, details dim and indented |
+| `_x_usage [-o] "x foo <arg>" [detail…]` | `Usage:` line, details dim and indented; on stderr, or stdout with `-o` when `-h`/`--help` asked for it (and exit 0) |
 | `_x_heading`, `_x_row name text` | report heading, aligned name/description rows |
 | `_x_item on\|half\|off\|ok\|err text` | report line led by a state icon (x serve, x connect) |
 | `_x_mark role text` | inline mark, several per line (x doctor) |
@@ -250,6 +250,7 @@ dotfiles/                 # git repo, cloned anywhere
 Then, from the repo root (wherever that is):
 
 ```sh
+mkdir -p ~/.config   # so only ~/.config/x folds, not ~/.config itself
 stow x            # symlinks ~/.config/x -> <repo>/x/.config/x
 ```
 

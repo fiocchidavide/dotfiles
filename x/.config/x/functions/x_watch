@@ -94,6 +94,10 @@ while (( $# )); do
                 list_only=1
             fi
             ;;
+        -h|--help)
+            _x_usage -o "$usage" "See the comment block at the top of ${X_FUNCTIONS_DIR/#$HOME/~}/x_watch."
+            return 0
+            ;;
         -i|--interactive-select)
             # Handled ourselves (fzf), not forwarded to webtorrent.
             interactive_pick=1
@@ -162,8 +166,11 @@ _x_watch_pick_file() {
     # the probe only) and drop it once the list is parsed.
     local probe_out listing
     probe_out=$(mktemp -d) || return 1
-    listing=$(webtorrent "$target" -s "$@" --out "$probe_out" 2>&1)
-    rm -rf -- "$probe_out"
+    {
+        listing=$(webtorrent "$target" -s "$@" --out "$probe_out" 2>&1)
+    } always {
+        rm -rf -- "$probe_out"     # also on Ctrl-C while metadata is fetched
+    }
 
     # Entries are "<name> (<size>)\t<index>": the name leads so a plain sort
     # orders them alphabetically, and fzf shows field 1 while the index rides

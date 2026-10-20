@@ -84,11 +84,12 @@ _x_print_commands() {
 # dispatcher
 x() {
     local cmd="$1"
-    if [[ -z "$cmd" ]]; then
-        _x_usage "x <command> [args...]"
+    if [[ -z "$cmd" || $cmd == (-h|--help|help) ]]; then
+        _x_usage ${cmd:+-o} "x <command> [args...]"
         _x_heading "Commands"
         _x_print_commands
-        return 1
+        [[ -n $cmd ]]        # asked for: fine; nothing given: an error
+        return
     fi
     shift
 
@@ -130,6 +131,11 @@ _x_ask_config() {
     local var=$1 question=$2 default=$3 value
     [[ -n ${(P)var} && ${(P)var} != *'<'*'>'* ]] && return 0
     if ! _x_ask "value" "$(_x_icon ask) $question${default:+ [$default]}: "; then
+        # On a terminal that was Ctrl-D: a "no", so save nothing and stop.
+        if { : </dev/tty } 2>/dev/null; then
+            _x_warn "Stopped; $var stays unset."
+            return 1
+        fi
         # No terminal and nothing on stdin: take the default if there is one.
         if [[ -z $default ]]; then
             _x_need_config $var
@@ -144,7 +150,10 @@ _x_ask_config() {
         return 1
     fi
     typeset -g $var=$value
-    print -r -- "$var=${(qq)value}" >> $X_DIR/config.zsh
+    local config=$X_DIR/config.zsh
+    # Start on a fresh line even if the file's last line has no newline.
+    [[ -s $config && -n $(tail -c 1 $config) ]] && print >> $config
+    print -r -- "$var=${(qq)value}" >> $config
     _x_info "Saved $var in ${X_DIR/#$HOME/~}/config.zsh"
 }
 
@@ -160,7 +169,8 @@ _x_ask_config() {
 #   _x_heading / _x_row / _x_item / _x_mark    reports (lists, status, doctor)
 #
 # Status lines (step/info/ok/warn/err/usage) go to stderr so stdout stays clean
-# for data (paths, keys, JSON); reports a command was asked for go to stdout.
+# for data (paths, keys, JSON); reports a command was asked for go to stdout,
+# and so does help asked for with -h/--help (_x_usage -o, _x_help … asked).
 # Colour and animation only on a terminal; NO_COLOR disables colour and
 # X_QUIET=1 (commands map -q to it) silences spinners, progress bars and
 # step/info/ok lines; warnings and errors always show.
@@ -226,14 +236,18 @@ _x_ok()   { (( ${X_QUIET:-0} )) || _x_say ok "$@" }
 _x_warn() { _x_say warn "$@" }
 _x_err()  { _x_say err "$@" }
 
-# _x_usage <synopsis> [detail…]: "Usage: <synopsis>", then each detail line
-# dim and indented, on stderr.
+# _x_usage [-o] <synopsis> [detail…]: "Usage: <synopsis>", then each detail
+# line dim and indented, on stderr; -o (help that was asked for, -h/--help):
+# on stdout.
 _x_usage() {
-    print -u2 -r -- "$(_x_paint bold Usage:) $1"
+    local -a paint=() fd=(-u2)
+    [[ $1 == -o ]] && { paint=(-o) fd=(); shift }
+    local X_FANCY_OUT; _x_fancy 1 && X_FANCY_OUT=1
+    print $fd -r -- "$(_x_paint $paint bold Usage:) $1"
     shift
     local line
     for line in "$@"; do
-        print -u2 -r -- "  $(_x_paint dim "$line")"
+        print $fd -r -- "  $(_x_paint $paint dim "$line")"
     done
 }
 

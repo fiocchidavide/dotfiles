@@ -3,6 +3,10 @@
 # command files are picked up, then re-sources the core (which re-autoloads
 # everything and rebuilds descriptions).
 emulate -L zsh
+if [[ $1 == (-h|--help) ]]; then
+    _x_usage -o "x reload" "re-read every command file and x.zsh"
+    return 0
+fi
 local fn
 for fn in ${(k)functions[(I)x_*]} ${(k)functions[(I)_x_*]}; do
     unfunction "$fn" 2>/dev/null

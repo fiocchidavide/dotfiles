@@ -138,7 +138,7 @@ PY
 case "${1:-}" in
     convert)   shift; _x_datalab_convert "$@" ;;
     ""|-h|--help|help)
-        _x_usage "x datalab convert [-o outdir] [-p page_range] FILE..." \
+        _x_usage ${1:+-o} "x datalab convert [-o outdir] [-p page_range] FILE..." \
             "-o outdir      where results go (default ./output)" \
             "-p page_range  e.g. 0-2,4 (default: all pages)"
         [[ -n "${1:-}" ]] || return 1

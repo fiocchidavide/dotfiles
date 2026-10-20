@@ -1,3 +1,8 @@
-# Completion hook: `x doctor <TAB>` -> command names.
-local -a cmds=( ${(ok)X_DESCRIPTIONS} )
+# Completion hook: `x doctor <TAB>` -> commands that declare dependencies.
+local -a cmds
+local f name
+for f in $X_FUNCTIONS_DIR/x_*(N); do
+    name=${${f:t}#x_}
+    grep -q '^#@needs' $f && cmds+=("$name:${X_DESCRIPTIONS[$name]}")
+done
 (( CURRENT == 3 )) && _describe 'command' cmds
