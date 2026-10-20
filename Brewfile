@@ -13,18 +13,19 @@ brew "mupdf-tools"    # x extrct   (mutool)
 brew "m1ddc"          # x shine
 brew "openconnect"    # x connect
 brew "rclone"         # x serve webdav, x gdrive, x vault
-brew "uv"             # x ocr, x datalab, x kdf, x seal, x vault, mas
+brew "uv"             # x ocr, x datalab, x kdf, x seal, x unseal, x vault, mas
 brew "zstd"           # x seal, x unseal, x vault
+brew "jq"             # x gdrive, x seal, x serve, x vault  (macOS 15+ also ships one)
 
 # --- dotfiles / shell tooling ---
 brew "stow"           # dotfiles symlink management
 brew "fnm"            # node version manager (provides node for webtorrent)
 brew "zoxide"
-brew "fzf"            # also x vault rekey -i (optional)
+brew "fzf"            # also x vault push / rekey -i, x watch -i (optional)
 brew "pure"           # prompt
 
 # --- casks ---
-cask "1password-cli"  # x connect, x datalab, x kdf, x vault  (op)
+cask "1password-cli"  # x connect, x datalab, x gdrive, x kdf, x seal, x serve, x unseal, x vault  (op)
 cask "iina"           # x watch iina
 
 # --- not available via Homebrew (install manually) ---

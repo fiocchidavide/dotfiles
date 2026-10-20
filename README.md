@@ -58,7 +58,7 @@ make relink     # re-stow after adding/removing files
 make unlink     # remove all symlinks
 make brew       # brew bundle --file=Brewfile
 make doctor     # x doctor — check runtime deps
-make install    # brew + link
+make install    # brew + link + oh-my-zsh
 ```
 
 Or drive stow directly:

@@ -17,9 +17,11 @@ for f in $X_FUNCTIONS_DIR/x_*(N); do
     req=(); opt=()
     while IFS= read -r line; do
         case $line in
-            '#@needs '*)          req+=( ${=line#\#@needs } ) ;;
-            '#@needs-optional '*) rest=${line#\#@needs-optional }
+            '#@needs '*)          rest=${line#\#@needs }
                                   rest=${rest%%\#*}          # strip trailing comment
+                                  req+=( ${=rest} ) ;;
+            '#@needs-optional '*) rest=${line#\#@needs-optional }
+                                  rest=${rest%%\#*}
                                   opt+=( ${=rest} ) ;;
         esac
     done < $f

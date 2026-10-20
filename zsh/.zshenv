@@ -14,10 +14,7 @@ typeset -U path PATH fpath FPATH
 # pnpm
 if [[ -d "$HOME/Library/pnpm" ]]; then
   export PNPM_HOME="$HOME/Library/pnpm"
-  case ":$PATH:" in
-    *":$PNPM_HOME/bin:"*) ;;
-    *) export PATH="$PNPM_HOME/bin:$PATH" ;;
-  esac
+  export PATH="$PNPM_HOME/bin:$PATH"     # typeset -U above drops a repeat
 fi
 
 # Project locations (layout described in $CODE_DIR/README.md)

@@ -19,13 +19,21 @@ jobs:
           files=(
             x/.config/x/x.zsh
             x/.config/x/functions/*
+            x/.config/x/config.zsh.example
             zsh/.myfunctions
+            zsh/.zprofile
+            zsh/.zshenv
             zsh/.zshrc
           )
           for f in "${files[@]}"; do
             echo "zsh -n $f"
             zsh -n "$f"
           done
+
+      - name: Syntax-check the share script and Python helper
+        run: |
+          bash -n x/.config/x/share/open.sh
+          python3 -m py_compile x/.config/x/lib/xstream.py
 
       - name: Check Makefile parses
         run: make -n help >/dev/null
