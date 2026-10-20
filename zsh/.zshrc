@@ -120,3 +120,7 @@ eval "$(fnm env --use-on-cd --shell zsh)"
 
 # zoxide
 eval "$(zoxide init zsh)"
+
+# Antigravity IDE CLI (agy-ide), only where it's installed
+[[ -d $HOME/.antigravity-ide/antigravity-ide/bin ]] &&
+    path=($HOME/.antigravity-ide/antigravity-ide/bin $path)
