@@ -1,12 +1,12 @@
 ## run $CODE_DIR/ocr/infinity_parser on a file
 #@needs uv
 if [[ -z "$1" ]]; then
-    echo "Usage: x ocr <file> [extra args...]"
+    _x_usage "x ocr <file> [extra args...]"
     return 1
 fi
 local dir=${CODE_DIR:-$HOME/Code}/ocr
 if [[ ! -f $dir/infinity_parser.py ]]; then
-    echo "❌ No OCR project at ${dir/#$HOME/~}"
+    _x_err "No OCR project at ${dir/#$HOME/~}"
     return 1
 fi
 uv run --project "$dir" python "$dir/infinity_parser.py" "$@"

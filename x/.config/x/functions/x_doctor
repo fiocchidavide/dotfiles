@@ -29,41 +29,44 @@ for f in $X_FUNCTIONS_DIR/x_*(N); do
     (( ${#req} + ${#opt} == 0 )) && continue
     any=1
 
-    printf "  %-10s " "$name"
+    print -rn -- "  $(_x_paint -o bold ${(r:10:)name}) "
     for b in $req; do
         if command -v "$b" >/dev/null 2>&1; then
-            print -n "✓$b "
+            _x_mark ok $b
         else
-            print -n "✗$b "
+            _x_mark err $b
             missing_all+=$b
         fi
     done
     for b in $opt; do
         if command -v "$b" >/dev/null 2>&1; then
-            print -n "○$b "
+            _x_mark on $b
         else
-            print -n "·$b "
+            _x_mark off $b
         fi
     done
     print
 done
 
 if (( ! any )); then
-    [[ -n $only ]] && { print "No command named '$only' with declared dependencies."; return 1; }
-    print "No dependencies declared."
+    [[ -n $only ]] && { _x_err "No command named '$only' with declared dependencies."; return 1; }
+    _x_info "No dependencies declared."
     return 0
 fi
 
 print
-print "Legend: ✓ present   ✗ MISSING (required)   ○ optional present   · optional absent"
+print -rn -- "  "
+_x_mark ok present; _x_mark err missing; _x_mark on "optional, present"; _x_mark off "optional, absent"
+print
+print
 
 if (( ${#missing_all} )); then
     missing_all=( ${(u)missing_all} )   # de-duplicate
-    print "\n❌ Missing required: ${(j:, :)missing_all}"
+    _x_err "Missing required: ${(j:, :)missing_all}"
     local brewfile=${X_DIR:h:h:h}/Brewfile
-    [[ -f $brewfile ]] && print "   Try: brew bundle --file=${brewfile/#$HOME/~}"
+    [[ -f $brewfile ]] && _x_info "Try: brew bundle --file=${brewfile/#$HOME/~}"
     return 1
 fi
 
-print "\n✅ All required dependencies present."
+_x_ok "All required dependencies present."
 return 0

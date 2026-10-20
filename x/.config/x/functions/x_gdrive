@@ -35,7 +35,7 @@
 emulate -L zsh
 setopt extended_glob pipe_fail
 
-local usage="Usage: x gdrive [-r remote] remotes | client | login | logout | status | ls | up | down | rm | mkdir | mv | du | link"
+local usage="x gdrive [-r remote] remotes | client | login | logout | status | ls | up | down | rm | mkdir | mv | du | link"
 local -a xg_scopes=(drive.file drive drive.readonly drive.appfolder drive.metadata.readonly)
 
 local -a o_remote
@@ -122,7 +122,7 @@ _x_gdrive_client_new() {
     zparseopts -D -E -F -- -scope:=o_scope -use-for:=o_use || return 1
     local name=$1 scope=${o_scope[2]:-drive.file}
     if [[ $name != [a-z][a-z0-9-]# ]]; then
-        print -u2 "Usage: x gdrive client new <name> [--scope ${(j:|:)xg_scopes}] [--use-for text]"
+        _x_usage "x gdrive client new <name> [--scope ${(j:|:)xg_scopes}] [--use-for text]"
         return 1
     fi
     if (( ! ${xg_scopes[(Ie)$scope]} )); then
@@ -247,7 +247,7 @@ _x_gdrive_up() {
     zparseopts -D -E -F -- d:=o_dir -move=f_move -bare=f_bare || return 1
     _x_gdrive_ready || return
     if (( ! $# )); then
-        print -u2 "Usage: x gdrive up [-d remote-dir] [--move] <local>…"
+        _x_usage "x gdrive up [-d remote-dir] [--move] <local>…"
         return 1
     fi
     local dir=${o_dir[2]:-} src dest verb=copy failed=0 t0
@@ -287,7 +287,7 @@ _x_gdrive_down() {
     zparseopts -D -E -F -- C:=o_dir || return 1
     _x_gdrive_ready || return
     if (( ! $# )); then
-        print -u2 "Usage: x gdrive down [-C local-dir] <remote>…"
+        _x_usage "x gdrive down [-C local-dir] <remote>…"
         return 1
     fi
     local dir=${o_dir[2]:-.} src failed=0 is_dir t0
@@ -334,7 +334,7 @@ _x_gdrive_link() {
     zparseopts -D -E -F -- -unlink=f_unlink || return 1
     _x_gdrive_ready || return
     if (( $# != 1 )); then
-        print -u2 "Usage: x gdrive link [--unlink] <remote>"
+        _x_usage "x gdrive link [--unlink] <remote>"
         return 1
     fi
     if (( $#f_unlink )); then
@@ -359,7 +359,7 @@ case $cmd in
             shift
             _x_gdrive_client_new "$@"
         else
-            print -u2 "Usage: x gdrive client new <name> [--scope s] [--use-for text]"
+            _x_usage "x gdrive client new <name> [--scope s] [--use-for text]"
             return 1
         fi
         ;;
@@ -385,7 +385,7 @@ case $cmd in
         ;;
     *)
         _x_err "Unknown subcommand '$cmd'."
-        print -u2 $usage
+        _x_usage $usage
         return 1
         ;;
 esac

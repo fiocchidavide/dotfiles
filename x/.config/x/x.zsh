@@ -68,13 +68,13 @@ _x_build_descriptions() {
 _x_print_commands() {
     local key
     for key in ${(ok)X_DESCRIPTIONS}; do
-        printf "  %-12s %s\n" "$key" "${X_DESCRIPTIONS[$key]}"
+        _x_row "$key" "${X_DESCRIPTIONS[$key]}"
     done
     # surface any autoloaded x_* command that has no description
     local fn
     for fn in ${(ok)functions[(I)x_*]}; do
         key=${fn#x_}
-        (( ${+X_DESCRIPTIONS[$key]} )) || printf "  %-12s %s\n" "$key" "(no description)"
+        (( ${+X_DESCRIPTIONS[$key]} )) || _x_row "$key" "(no description)"
     done
 }
 
@@ -82,8 +82,8 @@ _x_print_commands() {
 x() {
     local cmd="$1"
     if [[ -z "$cmd" ]]; then
-        print "👋 Usage: x <command> [args...]"
-        print "Available commands:"
+        _x_usage "x <command> [args...]"
+        _x_heading "Commands"
         _x_print_commands
         return 1
     fi
@@ -93,10 +93,8 @@ x() {
     if (( ${+functions[$fn]} )); then        # only dispatch to our own functions
         "$fn" "$@"
     else
-        print "${X_ICONS[err]} Error: 'x $cmd' is not a known command."
-        print "Available commands:"
-        _x_print_commands
-        print "Add one by creating '${X_FUNCTIONS_DIR/#$HOME/~}/x_${cmd}'."
+        _x_err "'x $cmd' is not a known command."
+        _x_info "Run x for the list, or add it as ${X_FUNCTIONS_DIR/#$HOME/~}/x_${cmd}."
         return 1
     fi
 }
@@ -117,8 +115,8 @@ _x_need_config() {
         [[ -z ${(P)var} || ${(P)var} == *'<'*'>'* ]] && unset_vars+=$var
     done
     (( ${#unset_vars} )) || return 0
-    print -u2 "${X_ICONS[err]} Missing setting(s): ${(j:, :)unset_vars}"
-    print -u2 "   Set them in ${X_DIR/#$HOME/~}/config.zsh (see config.zsh.example)."
+    _x_err "Missing setting(s): ${(j:, :)unset_vars}"
+    _x_info "Set them in ${X_DIR/#$HOME/~}/config.zsh (see config.zsh.example)."
     return 1
 }
 
@@ -128,7 +126,7 @@ _x_need_config() {
 _x_ask_config() {
     local var=$1 question=$2 default=$3 value
     [[ -n ${(P)var} && ${(P)var} != *'<'*'>'* ]] && return 0
-    if ! _x_ask "value" "$(_x_icon ask 35) $question${default:+ [$default]}: "; then
+    if ! _x_ask "value" "$(_x_icon ask) $question${default:+ [$default]}: "; then
         # No terminal and nothing on stdin: take the default if there is one.
         if [[ -z $default ]]; then
             _x_need_config $var
@@ -148,14 +146,24 @@ _x_ask_config() {
 }
 
 # ============================================================================
-# output helpers: status lines, spinners and progress bars
+# output helpers: the x design language
 # ============================================================================
-# Status goes to stderr so stdout stays clean for data (paths, keys, JSON).
+# Every command speaks through these, so all of x looks the same: one Nerd Font
+# icon and colour per role (X_ICONS, X_COLORS), no ad-hoc emoji or escapes.
+#
+#   _x_step   doing something (bold)           _x_ok    it worked
+#   _x_info   a detail or hint (dim)           _x_warn  worth knowing, not fatal
+#   _x_usage  how to call a command            _x_err   it failed
+#   _x_heading / _x_row / _x_item / _x_mark    reports (lists, status, doctor)
+#
+# Status lines (step/info/ok/warn/err/usage) go to stderr so stdout stays clean
+# for data (paths, keys, JSON); reports a command was asked for go to stdout.
 # Colour and animation only on a terminal; NO_COLOR disables colour and
 # X_QUIET=1 (commands map -q to it) silences spinners, progress bars and
 # step/info/ok lines; warnings and errors always show.
 
-_x_fancy() { [[ -t 2 && -z ${NO_COLOR-} ]] }
+# _x_fancy [fd]: whether output on fd (default 2, stderr) gets colour.
+_x_fancy() { [[ -t ${1:-2} && -z ${NO_COLOR-} ]] }
 
 # Nerd Font icons (Material Design, outlined), one place to restyle them all.
 typeset -gA X_ICONS=(
@@ -166,27 +174,89 @@ typeset -gA X_ICONS=(
     err  $'\U000f015a'   # md-close_circle_outline
     ask  $'\U000f0625'   # md-help_circle_outline
     key  $'\U000f030b'   # md-key_variant
+    on   $'\U000f0765'   # md-checkbox_blank_circle   (running, present)
+    half $'\U000f1396'   # md-circle_half_full        (partly up)
+    off  $'\U000f0766'   # md-checkbox_blank_circle_outline (off, absent)
 )
 
-# _x_icon <name> <sgr>: the icon, coloured on a terminal.
-_x_icon() {
-    if _x_fancy; then
-        print -rn -- $'\e['"$2m${X_ICONS[$1]}"$'\e[0m'
+# SGR colour per role (and for the spinner and plain text styles).
+typeset -gA X_COLORS=(
+    step '1;34'  info 36  ok 32  warn 33  err 31  ask 35  key 33
+    on 32  half 33  off 2
+    spin 36  bold 1  dim 2
+)
+
+# _x_paint [-o] <style> <text…>: text in an X_COLORS style (or a raw SGR) when
+# stderr is a terminal (-o: stdout). Prints no newline. Inside $(…) stdout is
+# a pipe, so -o trusts X_FANCY_OUT when a report helper has set it.
+_x_paint() {
+    local fancy
+    if [[ $1 == -o ]]; then
+        shift
+        fancy=${X_FANCY_OUT:-$(_x_fancy 1 && print 1)}
     else
-        print -rn -- ${X_ICONS[$1]}
+        _x_fancy && fancy=1
+    fi
+    local sgr=${X_COLORS[$1]:-$1}; shift
+    if [[ -n $fancy ]]; then
+        print -rn -- $'\e['"${sgr}m$*"$'\e[0m'
+    else
+        print -rn -- "$*"
     fi
 }
 
-# _x_say <icon> <sgr> <message…>: one status line, icon coloured by <sgr>.
-_x_say() {
-    local icon=$1 sgr=$2; shift 2
-    print -u2 -r -- "$(_x_icon $icon $sgr) $*"
+# _x_icon [-o] <name> [sgr]: the icon in its role colour (or sgr).
+_x_icon() {
+    local -a o
+    [[ $1 == -o ]] && { o=(-o); shift }
+    _x_paint $o ${2:-${X_COLORS[$1]:-0}} ${X_ICONS[$1]}
 }
-_x_step() { (( ${X_QUIET:-0} )) && return; _x_fancy && print -u2 -r -- "$(_x_icon step '1;34') "$'\e[1m'"$*"$'\e[0m' || _x_say step 0 "$@" }
-_x_info() { (( ${X_QUIET:-0} )) && return; _x_fancy && print -u2 -r -- "$(_x_icon info 36) "$'\e[2m'"$*"$'\e[0m' || _x_say info 0 "$@" }
-_x_ok()   { (( ${X_QUIET:-0} )) || _x_say ok 32 "$@" }
-_x_warn() { _x_say warn 33 "$@" }
-_x_err()  { _x_say err 31 "$@" }
+
+# _x_say <role> <message…>: one status line on stderr, icon in the role colour.
+_x_say() {
+    local role=$1; shift
+    print -u2 -r -- "$(_x_icon $role) $*"
+}
+_x_step() { (( ${X_QUIET:-0} )) || _x_say step "$(_x_paint bold "$*")" }
+_x_info() { (( ${X_QUIET:-0} )) || _x_say info "$(_x_paint dim "$*")" }
+_x_ok()   { (( ${X_QUIET:-0} )) || _x_say ok "$@" }
+_x_warn() { _x_say warn "$@" }
+_x_err()  { _x_say err "$@" }
+
+# _x_usage <synopsis> [detail…]: "Usage: <synopsis>", then each detail line
+# dim and indented, on stderr.
+_x_usage() {
+    print -u2 -r -- "$(_x_paint bold Usage:) $1"
+    shift
+    local line
+    for line in "$@"; do
+        print -u2 -r -- "  $(_x_paint dim "$line")"
+    done
+}
+
+# Reports on stdout: a bold heading, aligned name/description rows, and items
+# led by a role icon (on/half/off for state, ok/err for checks).
+#   _x_heading "Commands"; _x_row vault "encrypted backups"
+#   _x_item on "webdav  ~/WebDAV → https://…"
+#   _x_mark ok jq; _x_mark err fzf; print     # inline marks, one line
+_x_heading() {
+    local X_FANCY_OUT; _x_fancy 1 && X_FANCY_OUT=1
+    print -r -- "$(_x_paint -o bold "$*")"
+}
+_x_row() {
+    local X_FANCY_OUT; _x_fancy 1 && X_FANCY_OUT=1
+    local name=$1; shift
+    print -r -- "  $(_x_paint -o bold ${(r:12:)name}) $(_x_paint -o dim "$*")"
+}
+_x_item() {
+    local X_FANCY_OUT; _x_fancy 1 && X_FANCY_OUT=1
+    local role=$1; shift
+    print -r -- "  $(_x_icon -o $role) $*"
+}
+_x_mark() {
+    local X_FANCY_OUT; _x_fancy 1 && X_FANCY_OUT=1
+    print -rn -- "$(_x_icon -o $1) $2  "
+}
 
 # Seconds since $1 (an $EPOCHREALTIME), formatted 4.2s / 3:07 / 1:02:03.
 _x_elapsed() {
@@ -233,8 +303,9 @@ _x_spin() {
     {
         local frames='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏' i=0
         while :; do
-            printf '\r\e[K\e[36m%s\e[0m %s \e[2m%s\e[0m' \
-                "${frames[i % 10 + 1]}" "$label" "$(_x_elapsed $t0)" >&2
+            printf '\r\e[K\e[%sm%s\e[0m %s \e[%sm%s\e[0m' \
+                ${X_COLORS[spin]} "${frames[i % 10 + 1]}" "$label" \
+                ${X_COLORS[dim]} "$(_x_elapsed $t0)" >&2
             (( i++ ))
             zselect -t 10
         done
@@ -249,7 +320,7 @@ _x_spin() {
     if (( rc )); then
         _x_err "$label failed ($(_x_elapsed $t0))"
     elif (( ! transient )); then
-        _x_ok "$label $(_x_fancy && print -n $'\e[2m')($(_x_elapsed $t0))$(_x_fancy && print -n $'\e[0m')"
+        _x_ok "$label $(_x_paint dim "($(_x_elapsed $t0))")"
     fi
     return rc
 }

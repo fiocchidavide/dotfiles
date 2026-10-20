@@ -17,7 +17,7 @@ _x_datalab_convert() {
     local -a o_out o_pages
     zparseopts -D -E -F -- o:=o_out p:=o_pages || return 1
     if (( ! $# )); then
-        print -u2 "Usage: x datalab convert [-o outdir] [-p page_range] FILE..."
+        _x_usage "x datalab convert [-o outdir] [-p page_range] FILE..."
         return 1
     fi
     _x_need_config X_DATALAB_API_KEY_REF || return
@@ -25,7 +25,7 @@ _x_datalab_convert() {
     local key
     key=$(op read "$X_DATALAB_API_KEY_REF")
     if [[ -z "$key" ]]; then
-        print -u2 "❌ Failed to retrieve the Datalab API key from 1Password."
+        _x_err "Couldn't read the Datalab API key from 1Password."
         return 1
     fi
 
@@ -105,13 +105,13 @@ PY
 case "${1:-}" in
     convert)   shift; _x_datalab_convert "$@" ;;
     ""|-h|--help|help)
-        print "Usage: x datalab convert [-o outdir] [-p page_range] FILE..."
-        print "  -o outdir      where results go (default ./output)"
-        print "  -p page_range  e.g. 0-2,4 (default: all pages)"
+        _x_usage "x datalab convert [-o outdir] [-p page_range] FILE..." \
+            "-o outdir      where results go (default ./output)" \
+            "-p page_range  e.g. 0-2,4 (default: all pages)"
         [[ -n "${1:-}" ]] || return 1
         ;;
     *)
-        print -u2 "❌ Unknown subcommand '$1'. Try: x datalab convert"
+        _x_err "Unknown subcommand '$1'. Try: x datalab convert"
         return 1
         ;;
 esac

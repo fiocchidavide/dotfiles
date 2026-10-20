@@ -20,16 +20,16 @@ local -a idx
 case "$cmd" in
 create)
     if (( $# != 1 )); then
-        echo "Usage: x ramdisk create <size_in_GiB>" >&2
+        _x_usage "x ramdisk create <size_in_GiB>"
         return 1
     fi
     if ! [[ $1 =~ '^[0-9]+$' ]]; then
-        echo "Error: size must be an integer (no letters or symbols)" >&2
+        _x_err "The size must be a whole number of GiB."
         return 1
     fi
     local size=$(( 10#$1 ))
     if (( size < 1 || size > 128 )); then
-        echo "Error: size must be between 1 and 128 GiB" >&2
+        _x_err "The size must be between 1 and 128 GiB."
         return 1
     fi
 
@@ -40,29 +40,29 @@ create)
     local name="RAMDisk${n}" mp="${prefix}${n}"
 
     if [[ -d $mp ]]; then
-        echo "Error: $mp already exists" >&2
+        _x_err "$mp already exists."
         return 1
     fi
 
     local blocks=$(( size * 2097152 ))   # GiB × 2^21 512-byte blocks
-    echo "→ Attaching ram://$blocks (512-byte blocks → ${size}GiB) for $name…" >&2
+    _x_step "Attaching ram://$blocks (512-byte blocks → ${size}GiB) for $name"
     local device
     device=$(hdiutil attach -nomount ram://$blocks 2>/dev/null \
         | awk '/^\/dev/{print $1; exit}')
     if [[ -z $device ]]; then
-        echo "Error: hdiutil attach failed" >&2
+        _x_err "hdiutil attach failed."
         return 1
     fi
-    echo "  → assigned device: $device" >&2
+    _x_info "Device: $device"
 
-    echo "→ Creating APFS container & volume '$name' on $device…" >&2
+    _x_step "Creating APFS container and volume '$name' on $device"
     if ! diskutil apfs create "$device" "$name" >/dev/null; then
-        echo "Error: formatting failed" >&2
+        _x_err "Formatting failed."
         hdiutil detach "$device" -force >/dev/null 2>&1
         return 1
     fi
 
-    echo "✔ $name (${size}GiB) ready at $mp (device: $device)" >&2
+    _x_ok "$name (${size}GiB) ready at $mp (device: $device)"
     print -r -- "$mp"   # stdout: the mount point, for capture by callers
     ;;
 
@@ -71,7 +71,7 @@ destroy)
     if [[ $target == all ]]; then
         _x_ramdisk_scan
         if (( ! ${#idx} )); then
-            echo "No RAM disks mounted." >&2
+            _x_info "No RAM disks mounted."
             return 0
         fi
         local i rc=0
@@ -82,7 +82,7 @@ destroy)
     elif [[ -z $target ]]; then
         _x_ramdisk_scan   # default: top of stack
         if (( ! ${#idx} )); then
-            echo "Error: no RAM disks to destroy" >&2
+            _x_err "No RAM disks to destroy."
             return 1
         fi
         mp="${prefix}${idx[-1]}"
@@ -91,60 +91,60 @@ destroy)
     elif [[ $target =~ '^[0-9]+$' ]]; then
         mp="${prefix}${target}"
     else
-        echo "Usage: x ramdisk destroy [<index>|<mountpoint>|all]" >&2
+        _x_usage "x ramdisk destroy [<index>|<mountpoint>|all]"
         return 1
     fi
 
     if [[ ! -d $mp ]]; then
-        echo "Error: no RAM disk found at $mp" >&2
+        _x_err "No RAM disk found at $mp."
         return 1
     fi
 
     local device backing
     device=$(df "$mp" 2>/dev/null | awk 'NR==2{print $1}')
     if [[ -z $device ]]; then
-        echo "Error: cannot determine device for $mp" >&2
+        _x_err "Can't determine the device for $mp."
         return 1
     fi
-    echo "→ Unmounting $mp ($device)…" >&2
-    diskutil unmount "$mp" >/dev/null || { echo "Error: unmount failed" >&2; return 1; }
+    _x_step "Unmounting $mp ($device)"
+    diskutil unmount "$mp" >/dev/null || { _x_err "Unmount failed."; return 1; }
 
     # backing store = Physical Store of the APFS container
     backing=$(diskutil info "${device%s*}" | awk '/Physical Store/{print $NF; exit}')
     if [[ -z $backing ]]; then
-        echo "Error: cannot determine backing device" >&2
+        _x_err "Can't determine the backing device."
         return 1
     fi
-    echo "→ Detaching /dev/$backing…" >&2
-    hdiutil detach "/dev/$backing" >/dev/null || { echo "Error: eject failed" >&2; return 1; }
+    _x_step "Detaching /dev/$backing"
+    hdiutil detach "/dev/$backing" >/dev/null || { _x_err "Eject failed."; return 1; }
 
-    echo "✔ RAM disk at $mp destroyed" >&2
+    _x_ok "RAM disk at $mp destroyed"
     ;;
 
 list|ls)
     _x_ramdisk_scan
     if (( ! ${#idx} )); then
-        echo "No RAM disks mounted."
+        _x_info "No RAM disks mounted."
         return 0
     fi
     local n mp
     for n in $idx; do
         mp="${prefix}${n}"
-        printf "  [%s] %-20s %s\n" "$n" "$mp" \
-            "$(df -h "$mp" 2>/dev/null | awk 'NR==2{print $2" total, "$4" free"}')"
+        _x_item on "$(printf '[%s] %-20s %s' "$n" "$mp" \
+            "$(df -h "$mp" 2>/dev/null | awk 'NR==2{print $2" total, "$4" free"}')")"
     done
     ;;
 
 ""|-h|--help|help)
-    echo "Usage:"
-    echo "  x ramdisk create <size_in_GiB>          create the next disk (RAMDisk0, RAMDisk1, …)"
-    echo "  x ramdisk destroy [<index>|<mp>|all]    destroy top of stack (LIFO), a specific one, or all"
-    echo "  x ramdisk list                          list mounted RAM disks"
+    _x_usage "x ramdisk create | destroy | list" \
+        "create <size_in_GiB>          create the next disk (RAMDisk0, RAMDisk1, …)" \
+        "destroy [<index>|<mp>|all]    destroy top of stack (LIFO), a specific one, or all" \
+        "list                          list mounted RAM disks"
     return 1
     ;;
 
 *)
-    echo "❌ Unknown subcommand: ramdisk $cmd" >&2
+    _x_err "Unknown subcommand: x ramdisk $cmd"
     x_ramdisk --help >&2
     return 1
     ;;

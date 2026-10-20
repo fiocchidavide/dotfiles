@@ -9,4 +9,4 @@ for fn in ${(k)functions[(I)x_*]} ${(k)functions[(I)_x_*]}; do
 done
 source "${X_DIR}/x.zsh"
 local -a cmds=( ${(k)functions[(I)x_*]} )
-print "🔄 x reloaded (${#cmds} commands)"
+_x_ok "x reloaded (${#cmds} commands)"

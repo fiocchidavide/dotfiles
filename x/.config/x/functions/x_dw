@@ -2,36 +2,35 @@
 #@needs curl aunpack
 # Check if a URL was provided
 if [[ -z "$1" ]]; then
-    echo "Usage: x dw <url>"
+    _x_usage "x dw <url>"
     return 1
 fi
 
 local url="$1"
 local file_name
 
-echo "📥 Downloading..."
+_x_step "Downloading $url"
 
 # Download the file and capture the dynamically generated file name.
 # -f: an HTTP error fails instead of saving the error page as the archive.
 if ! file_name=$(curl -fsSL -O -J -w "%{filename_effective}" "$url"); then
-    echo "❌ Download failed."
+    _x_err "Download failed."
     return 1
 fi
 
 # Check if the file actually exists on disk now
 if [[ ! -f "$file_name" ]]; then
-    echo "❌ Download failed or no file was created."
+    _x_err "Download failed or no file was created."
     return 1
 fi
 
-echo "📦 Extracting: $file_name"
+_x_step "Extracting $file_name"
 
 # Run aunpack. If it succeeds, remove the archive.
 if aunpack "$file_name"; then
-    echo "🧹 Cleaning up: $file_name"
     rm "$file_name"
-    echo "✅ Done!"
+    _x_ok "Extracted and removed $file_name"
 else
-    echo "❌ Extraction failed. Archive kept for debugging: $file_name"
+    _x_err "Extraction failed; archive kept for debugging: $file_name"
     return 1
 fi

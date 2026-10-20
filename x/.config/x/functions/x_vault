@@ -33,7 +33,7 @@
 emulate -L zsh
 setopt extended_glob pipe_fail
 
-local usage="Usage: x vault init | put | push | ls | get | key | keys | rekey | rm | check | share"
+local usage="x vault init | put | push | ls | get | key | keys | rekey | rm | check | share"
 local state=${XDG_STATE_HOME:-$HOME/.local/state}/x/vault
 local index=$state/index.jsonl
 local xstream=(uv run --quiet --no-project python -I $X_DIR/lib/xstream.py)
@@ -319,7 +319,7 @@ _xv_put() {
     local -a f_direct o_key
     zparseopts -D -E -F -- -direct=f_direct k:=o_key || return 1
     if (( ! $# )); then
-        print -u2 "Usage: x vault put [--direct] [-k keyid] <path>…"
+        _x_usage "x vault put [--direct] [-k keyid] <path>…"
         return 1
     fi
     local id=${o_key[2]}
@@ -520,7 +520,7 @@ _xv_get() {
     local -a o_dir
     zparseopts -D -E -F -- C:=o_dir || return 1
     if (( $# != 1 )); then
-        print -u2 "Usage: x vault get [-C dir] <archive | path | pattern>"
+        _x_usage "x vault get [-C dir] <archive | path | pattern>"
         return 1
     fi
     _xv_pull || return
@@ -534,7 +534,7 @@ _xv_get() {
 
 _xv_key() {
     if (( $# != 1 )); then
-        print -u2 "Usage: x vault key <archive | path>"
+        _x_usage "x vault key <archive | path>"
         return 1
     fi
     local name=${${1:t}%.age}
@@ -561,9 +561,9 @@ _xv_rekey() {
         -before:=o_before -larger:=o_larger -smaller:=o_smaller -to:=o_to \
         -all=f_all n=f_dry i=f_pick || return 1
     if (( ! ($#o_from + $#o_status + $#o_match + $#o_before + $#o_larger + $#o_smaller + $#f_all + $#f_pick + $#) )); then
-        print -u2 "Usage: x vault rekey [--from id] [--status s] [--match glob] [--before date]"
+        _x_usage "x vault rekey [--from id] [--status s] [--match glob] [--before date]"
         print -u2 "                     [--larger size] [--smaller size] [--all] [-i] [--to id] [-n] [archive|path…]"
-        print -u2 "Say which archives: rekeying everything needs --all."
+        _x_info "Say which archives: rekeying everything needs --all."
         return 1
     fi
     local to=${o_to[2]}
@@ -696,7 +696,7 @@ _xv_rm() {
     local -a f_dry
     zparseopts -D -E -F -- n=f_dry || return 1
     if (( ! $# )); then
-        print -u2 "Usage: x vault rm [-n] <archive | path | pattern>…"
+        _x_usage "x vault rm [-n] <archive | path | pattern>…"
         return 1
     fi
     _xv_pull || return
@@ -777,7 +777,7 @@ _xv_share() {
     local -a o_to
     zparseopts -D -E -F -- -to:=o_to || return 1
     if (( $# != 1 )) || [[ ! -e $1 ]]; then
-        print -u2 "Usage: x vault share [--to DIR] <path>"
+        _x_usage "x vault share [--to DIR] <path>"
         return 1
     fi
     local src=${1:a}
@@ -847,7 +847,7 @@ case $cmd in
     share)  _xv_share "$@" ;;
     *)
         _x_err "Unknown subcommand '$cmd'."
-        print -u2 $usage
+        _x_usage $usage
         return 1
         ;;
 esac

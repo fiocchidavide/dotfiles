@@ -77,16 +77,27 @@ cowsay "Hi, ${1:-world}!"
 
 Then `x hello`, `x` (lists it), `x he<TAB>` (completes it).
 
-### Output helpers
+### Output helpers: one design language
 
-`x.zsh` provides these for every command. Status goes to stderr, so stdout
-stays clean for data. Colour and animation appear only on a terminal.
-`NO_COLOR` turns colour off, and `X_QUIET=1` (map your `-q` to it) silences
-everything but warnings and errors.
+`x.zsh` defines how x looks, and every command speaks through it: one Nerd
+Font icon and one colour per role, kept in `X_ICONS` and `X_COLORS`. Don't
+`echo` emoji or write escape codes in a command. Use a role, and restyle all of
+x by editing those two tables.
+
+Status lines go to stderr, so stdout stays clean for data; reports a command
+was asked for (lists, status, `x doctor`) go to stdout. Colour and animation
+appear only on a terminal. `NO_COLOR` turns colour off, and `X_QUIET=1` (map
+your `-q` to it) silences everything but warnings and errors.
 
 | Helper | Use |
 |---|---|
-| `_x_step` / `_x_info` / `_x_ok` / `_x_warn` / `_x_err` | heading, dim detail, success, warning, error lines, with Nerd Font icons from `X_ICONS` |
+| `_x_step` / `_x_info` | doing something (bold) / a detail or hint (dim) |
+| `_x_ok` / `_x_warn` / `_x_err` | it worked / worth knowing / it failed |
+| `_x_usage "x foo <arg>" [detail…]` | `Usage:` line, details dim and indented |
+| `_x_heading`, `_x_row name text` | report heading, aligned name/description rows |
+| `_x_item on\|half\|off\|ok\|err text` | report line led by a state icon (x serve, x connect) |
+| `_x_mark role text` | inline mark, several per line (x doctor) |
+| `_x_paint style text`, `_x_icon role` | inline styled text or icon, for composing |
 | `_x_spin [-t] "label" cmd…` | spinner with elapsed time while cmd runs, then a success or error line (`-t`: no line on success); cmd's stdout passes through |
 | `… \| _x_pv -s bytes -N label \| …` | progress bar for a byte stream (`xstream.py meter`, the same bar as `x gdrive` transfers), a plain pass-through otherwise |
 | `_x_ask var "prompt" [-s]`, `_x_ask_yn "question"` | read from the terminal (stdin without one) |

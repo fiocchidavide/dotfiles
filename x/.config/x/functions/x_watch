@@ -65,7 +65,7 @@ local -a wt_valued=(
     -d --download-limit -u --upload-limit --player-args --torrent-port
     --dht-port --on-done --on-exit
 )
-local usage="Usage: x watch [player] [--ram[=SIZEgb]] [webtorrent flags] <url-or-magnet>"
+local usage="x watch [player] [--ram[=SIZEgb]] [webtorrent flags] <url-or-magnet>"
 
 while (( $# )); do
     case "$1" in
@@ -91,7 +91,7 @@ while (( $# )); do
         -*)
             if (( ${wt_valued[(Ie)$1]} )); then
                 if [[ -z "$2" ]]; then
-                    echo "❌ $1 needs a value" >&2
+                    _x_err "$1 needs a value"
                     return 1
                 fi
                 wt_args+=("$1" "$2")
@@ -108,13 +108,13 @@ done
 # --ram works by pointing --out at the RAM disk, so the two can't coexist.
 local out_given=$(( ${wt_args[(I)-o]} + ${wt_args[(I)--out*]} ))
 if (( ram_enabled && out_given )); then
-    echo "❌ --ram already sets webtorrent's --out; pass one or the other." >&2
+    _x_err "--ram already sets webtorrent's --out; pass one or the other."
     return 1
 fi
 
 if (( ${#pos} > 2 )); then
-    echo "❌ Too many arguments: ${(j: :)pos[3,-1]}" >&2
-    echo "$usage" >&2
+    _x_err "Too many arguments: ${(j: :)pos[3,-1]}"
+    _x_usage "$usage"
     return 1
 fi
 if (( ${#pos} == 2 )); then
@@ -122,7 +122,7 @@ if (( ${#pos} == 2 )); then
 fi
 local target="${pos[${#pos}]}"
 if [[ -z "$target" ]]; then
-    echo "$usage"
+    _x_usage "$usage"
     return 1
 fi
 
@@ -138,11 +138,11 @@ _x_watch_pick_file() {
     local target="$1"
     shift
     if (( ! ${+commands[fzf]} )); then
-        echo "❌ -i needs fzf (brew install fzf)." >&2
+        _x_err "-i needs fzf (brew install fzf)."
         return 1
     fi
 
-    echo "🔍 Fetching the file list..." >&2
+    _x_step "Fetching the file list"
     # A bare `webtorrent <id> -s` names no player and no --out, so webtorrent
     # falls back to --out=$PWD and creates <cwd>/<torrent name>/ as soon as it
     # adds the torrent -- before it has even printed the listing it then exits
@@ -167,8 +167,8 @@ _x_watch_pick_file() {
     done
 
     if (( ! ${#files} )); then
-        echo "❌ Couldn't get a file list from webtorrent:" >&2
-        echo "$listing" >&2
+        _x_err "Couldn't get a file list from webtorrent:"
+        print -u2 -r -- "$listing"
         return 1
     fi
 
@@ -190,13 +190,13 @@ _x_watch_pick_file() {
 local play="_x_watch_play_${player}"
 if (( ! ${+functions[$play]} )); then
     local -a known=( ${${(ok)functions[(I)_x_watch_play_*]}#_x_watch_play_} )
-    echo "❌ Unknown player '$player'. Supported: ${(j:, :)known}" >&2
+    _x_err "Unknown player '$player'. Supported: ${(j:, :)known}"
     return 1
 fi
 
 if (( interactive_pick )); then
     if (( ${wt_args[(I)-s]} + ${wt_args[(I)--select]} )); then
-        echo "❌ Use either -i or -s, not both." >&2
+        _x_err "Use either -i or -s, not both."
         return 1
     fi
     local picked
@@ -206,7 +206,7 @@ fi
 
 local -a wt_out=()
 if (( ram_enabled )); then
-    echo "💾 Creating ${ram_size}GiB RAM disk for the streaming buffer..."
+    _x_step "Creating a ${ram_size}GiB RAM disk for the streaming buffer"
     # Multiplexed: create a fresh disk and capture its own mount point, so
     # concurrent `x watch --ram` runs each get an independent buffer.
     local ram_mp
@@ -223,7 +223,7 @@ fi
     "$play" "$target" "${wt_out[@]}" "${wt_args[@]}"
 } always {
     if [[ -n $ram_mp ]]; then
-        echo "🧹 Destroying RAM disk..."
+        _x_step "Destroying the RAM disk"
         x_ramdisk destroy "$ram_mp"
     fi
 }

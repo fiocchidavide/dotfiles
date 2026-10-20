@@ -27,7 +27,7 @@ if (( $#o_selftest )); then
 fi
 
 if (( $# != 2 )); then
-    print -u2 "Usage: x kdf [-P purpose] [-m -] <keyid> <name>"
+    _x_usage "x kdf [-P purpose] [-m -] <keyid> <name>"
     print -u2 "       x kdf --selftest"
     return 1
 fi

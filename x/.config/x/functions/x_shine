@@ -1,7 +1,7 @@
 ## set monitor brightness (0-100)
 #@needs m1ddc
 if [[ -z "$1" ]]; then
-    echo "Usage: x shine <0-100>"
+    _x_usage "x shine <0-100>"
     return 1
 fi
 m1ddc set luminance "$1"

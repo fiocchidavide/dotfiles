@@ -64,7 +64,7 @@ _x_serve_tailscale_up() {
 
     # The macOS app hosts the daemon; the CLI can't reach it while it's closed.
     if [[ -z $state ]]; then
-        print "🚀 Launching Tailscale..."
+        _x_step "Launching Tailscale"
         open -ga Tailscale 2>/dev/null
         for i in {1..50}; do
             state=$(_x_serve_backend)
@@ -72,15 +72,15 @@ _x_serve_tailscale_up() {
             sleep 0.2
         done
         if [[ -z $state ]]; then
-            print -u2 "❌ Couldn't reach Tailscale. Is the app installed?"
+            _x_err "Couldn't reach Tailscale. Is the app installed?"
             return 1
         fi
         [[ $state == Running ]] && { mkdir -p $state_dir; : >| $ts_ours; return 0 }
     fi
 
-    print "🔌 Bringing Tailscale up..."
+    _x_step "Bringing Tailscale up"
     if ! tailscale up || [[ $(_x_serve_backend) != Running ]]; then
-        print -u2 "❌ Tailscale didn't come up."
+        _x_err "Tailscale didn't come up."
         return 1
     fi
     mkdir -p $state_dir
@@ -95,7 +95,7 @@ _x_serve_tailscale_settle() {
         return 0
     fi
     [[ -z $(_x_serve_ports) ]] || return 0
-    print "💤 Nothing left to serve, taking Tailscale down..."
+    _x_step "Nothing left to serve, taking Tailscale down"
     tailscale down && rm -f $ts_ours
 }
 
@@ -103,7 +103,7 @@ _x_serve_tailscale_settle() {
 # it with the node's HTTPS name; both keep running after this shell exits.
 _x_serve_webdav() {
     if _x_serve_rclone_pid >/dev/null && (( ${(M)#${(f)"$(_x_serve_ports)"}:#443} )); then
-        print "✅ webdav is already up: $(<$state_dir/webdav.dir)"
+        _x_ok "webdav is already up: $(<$state_dir/webdav.dir)"
         return 0
     fi
     _x_need_config X_WEBDAV_USER X_WEBDAV_PASSWORD_REF || return
@@ -111,7 +111,7 @@ _x_serve_webdav() {
     dir=${dir:A}
 
     if [[ ! -d "$dir" ]]; then
-        print -u2 "serve webdav: no such directory: $dir"
+        _x_err "No such directory: $dir"
         return 1
     fi
 
@@ -121,7 +121,7 @@ _x_serve_webdav() {
     local password
     password=$(op read "$X_WEBDAV_PASSWORD_REF")
     if [[ -z "$password" ]]; then
-        print -u2 "❌ Failed to retrieve the WebDAV password from 1Password."
+        _x_err "Couldn't read the WebDAV password from 1Password."
         return 1
     fi
 
@@ -137,21 +137,21 @@ _x_serve_webdav() {
     print -r -- "$dir" >| $state_dir/webdav.dir
 
     if ! _x_serve_wait_port "$webdav_port"; then
-        print -u2 "❌ rclone never came up on 127.0.0.1:$webdav_port (see ${state_dir/#$HOME/~}/webdav.log)."
+        _x_err "rclone never came up on 127.0.0.1:$webdav_port (see ${state_dir/#$HOME/~}/webdav.log)."
         _x_serve_stop_webdav quiet
         _x_serve_tailscale_settle
         return 1
     fi
 
     if ! tailscale serve --bg "http://127.0.0.1:$webdav_port" >/dev/null; then
-        print -u2 "❌ tailscale serve failed."
+        _x_err "tailscale serve failed."
         _x_serve_stop_webdav quiet
         _x_serve_tailscale_settle
         return 1
     fi
 
-    print "📂 $dir → https://$(_x_serve_dnsname)"
-    print "   user: $X_WEBDAV_USER · password: 1Password → $X_WEBDAV_PASSWORD_REF"
+    _x_ok "$dir → https://$(_x_serve_dnsname)"
+    _x_info "user: $X_WEBDAV_USER · password: 1Password → $X_WEBDAV_PASSWORD_REF"
 }
 
 # Front the paseo daemon, which listens on 127.0.0.1:6767 of its own accord
@@ -159,24 +159,24 @@ _x_serve_webdav() {
 # the only allowed CORS origin — can reach it from another device.
 _x_serve_paseo() {
     if (( ${(M)#${(f)"$(_x_serve_ports)"}:#$paseo_port} )); then
-        print "✅ paseo is already up."
+        _x_ok "paseo is already up."
         return 0
     fi
 
     if ! nc -z 127.0.0.1 "$paseo_port" 2>/dev/null; then
-        print -u2 "⚠️  Nothing is listening on 127.0.0.1:$paseo_port — is the paseo daemon running?"
-        print -u2 "   Serving anyway; it'll start working once the daemon is up."
+        _x_warn "Nothing is listening on 127.0.0.1:$paseo_port. Is the paseo daemon running?"
+        _x_info "Serving anyway; it'll start working once the daemon is up."
     fi
 
     _x_serve_tailscale_up || return
 
     if ! tailscale serve --bg --https="$paseo_port" "http://127.0.0.1:$paseo_port" >/dev/null; then
-        print -u2 "❌ tailscale serve failed."
+        _x_err "tailscale serve failed."
         _x_serve_tailscale_settle
         return 1
     fi
 
-    print "🌐 paseo daemon → https://$(_x_serve_dnsname):$paseo_port"
+    _x_ok "paseo daemon → https://$(_x_serve_dnsname):$paseo_port"
 }
 
 _x_serve_stop_webdav() {
@@ -190,14 +190,14 @@ _x_serve_stop_webdav() {
         stopped=1
     fi
     rm -f $state_dir/webdav.pid $state_dir/webdav.dir
-    [[ -z $quiet ]] && (( stopped )) && print "👋 Stopped webdav."
+    [[ -z $quiet ]] && (( stopped )) && _x_ok "Stopped webdav."
     return 0
 }
 
 _x_serve_stop_paseo() {
     (( ${(M)#${(f)"$(_x_serve_ports)"}:#$paseo_port} )) || return 0
     tailscale serve --https="$paseo_port" off >/dev/null 2>&1
-    print "👋 Stopped paseo."
+    _x_ok "Stopped paseo."
 }
 
 _x_serve_off() {
@@ -205,7 +205,7 @@ _x_serve_off() {
     local -a ports
     ports=(${(f)"$(_x_serve_ports)"})
     if [[ $target == all ]] && (( ! ${#ports} )) && ! _x_serve_rclone_pid >/dev/null; then
-        print "🔌 Nothing to stop."
+        _x_info "Nothing to stop."
         _x_serve_tailscale_settle
         return 0
     fi
@@ -214,7 +214,7 @@ _x_serve_off() {
         webdav) _x_serve_stop_webdav ;;
         paseo)  _x_serve_stop_paseo ;;
         *)
-            print -u2 "❌ Unknown target '$target'. Try: x serve off [webdav|paseo]"
+            _x_err "Unknown target '$target'. Try: x serve off [webdav|paseo]"
             return 1
             ;;
     esac
@@ -229,30 +229,30 @@ _x_serve_status() {
         host=$(_x_serve_dnsname)
         ports=(${(f)"$(_x_serve_ports)"})
         if [[ -e $ts_ours ]]; then
-            print "🛰  Tailscale: up (started by x serve)"
+            _x_item on "tailscale  up (started by x serve)"
         else
-            print "🛰  Tailscale: up"
+            _x_item on "tailscale  up"
         fi
     else
-        print "🛰  Tailscale: ${state:-not running}"
+        _x_item off "tailscale  ${(L)state:-not running}"
     fi
 
     local rclone_up=0
     _x_serve_rclone_pid >/dev/null && rclone_up=1
     if (( ${(M)#ports:#443} && rclone_up )); then
-        print "  🟢 webdav   $(<$state_dir/webdav.dir) → https://$host"
+        _x_item on "webdav     $(<$state_dir/webdav.dir) → https://$host"
     elif (( ${(M)#ports:#443} || rclone_up )); then
-        print "  🟠 webdav   half up (run 'x serve off webdav')"
+        _x_item half "webdav     half up (run 'x serve off webdav')"
     else
-        print "  ⚪ webdav   off"
+        _x_item off "webdav     off"
     fi
 
     if (( ${(M)#ports:#$paseo_port} )); then
         local note=""
         nc -z 127.0.0.1 "$paseo_port" 2>/dev/null || note=" (daemon not listening)"
-        print "  🟢 paseo    https://$host:$paseo_port$note"
+        _x_item on "paseo      https://$host:$paseo_port$note"
     else
-        print "  ⚪ paseo    off"
+        _x_item off "paseo      off"
     fi
 }
 
@@ -262,17 +262,17 @@ case "${1:-}" in
     paseo)     shift; _x_serve_paseo "$@" ;;
     off|stop|down|d) shift; _x_serve_off "$@" ;;
     -h|--help|help)
-        print "Usage: x serve <webdav|paseo|off>"
-        print "  webdav [dir]   share a directory as WebDAV (default ${X_WEBDAV_DIR:-~/WebDAV})"
-        print "  paseo          front the local paseo daemon on :6767"
-        print "  off [target]   stop one share, or all of them"
-        print "  (no args)      list the shares and whether each is up"
-        print
-        print "Shares run in the background. Tailscale is brought up when needed and"
-        print "taken down again once nothing is served, if x serve started it."
+        _x_usage "x serve <webdav|paseo|off>" \
+            "webdav [dir]   share a directory as WebDAV (default ${X_WEBDAV_DIR:-~/WebDAV})" \
+            "paseo          front the local paseo daemon on :6767" \
+            "off [target]   stop one share, or all of them" \
+            "(no args)      list the shares and whether each is up" \
+            "" \
+            "Shares run in the background. Tailscale is brought up when needed and" \
+            "taken down again once nothing is served, if x serve started it."
         ;;
     *)
-        print -u2 "❌ Unknown target '$1'. Try: x serve <webdav|paseo|off>"
+        _x_err "Unknown target '$1'. Try: x serve <webdav|paseo|off>"
         return 1
         ;;
 esac

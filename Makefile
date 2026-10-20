@@ -58,7 +58,7 @@ unlink: ## remove all symlinks for every package
 	$(STOW) -Dv $(PACKAGES)
 
 doctor: ## check runtime deps of x commands (uses a login shell for full PATH)
-	@zsh -lic 'x doctor' 2>/dev/null
+	@zsh -lic 'x doctor'
 
 help: ## show this help
 	@grep -hE '^[a-z][a-zA-Z_-]*:.*##' $(MAKEFILE_LIST) \

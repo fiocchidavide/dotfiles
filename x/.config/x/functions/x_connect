@@ -33,9 +33,9 @@ _x_connect_current() {
 _x_connect_status() {
     local current
     if current=$(_x_connect_current); then
-        print "🔗 Connected: $current"
+        _x_item on "connected to $current"
     else
-        print "🔌 No VPN connection is up."
+        _x_item off "no VPN connection is up"
     fi
 }
 
@@ -45,9 +45,9 @@ _x_connect_guard() {
     local current
     current=$(_x_connect_current) || return 0
     if [[ "$current" == "$1" ]]; then
-        print "✅ Already connected to $1."
+        _x_ok "Already connected to $1."
     else
-        print "⚠️  Already connected to $current. Run 'x connect off' first." >&2
+        _x_warn "Already connected to $current. Run 'x connect off' first."
     fi
     return 1
 }
@@ -55,17 +55,17 @@ _x_connect_guard() {
 _x_connect_eth() {
     _x_connect_guard eth || return
     _x_need_config X_ETH_USER X_ETH_PASSWORD_REF X_ETH_OTP_REF || return
-    print "🔐 Retrieving ETH credentials from 1Password..."
+    _x_step "Reading ETH credentials from 1Password"
     local password challenge
     password=$(op read "$X_ETH_PASSWORD_REF")
     challenge=$(op read "$X_ETH_OTP_REF")
 
     if [[ -z "$password" || -z "$challenge" ]]; then
-        print "❌ Failed to retrieve credentials from 1Password."
+        _x_err "Couldn't read the credentials from 1Password."
         return 1
     fi
 
-    print "🌍 Connecting to ETH Zurich VPN..."
+    _x_step "Connecting to the ETH Zurich VPN"
     { print -r -- "$password"; print -r -- "$challenge" } | \
         sudo openconnect -b -u "$X_ETH_USER" --useragent=AnyConnect \
             -g student-net sslvpn.ethz.ch --no-external-auth --passwd-on-stdin
@@ -77,18 +77,18 @@ _x_connect_epfl() {
     local user_var=X_EPFL_USER_REF
     [[ -n $X_EPFL_USER ]] && user_var=X_EPFL_USER
     _x_need_config $user_var X_EPFL_PASSWORD_REF X_EPFL_OTP_REF || return
-    print "🔐 Retrieving EPFL credentials from 1Password..."
+    _x_step "Reading EPFL credentials from 1Password"
     local user password challenge
     user=${X_EPFL_USER:-$(op read "$X_EPFL_USER_REF")}
     password=$(op read "$X_EPFL_PASSWORD_REF")
     challenge=$(op read "$X_EPFL_OTP_REF")
 
     if [[ -z "$user" || -z "$password" ]]; then
-        print "❌ Failed to retrieve credentials from 1Password."
+        _x_err "Couldn't read the credentials from 1Password."
         return 1
     fi
 
-    print "🌍 Connecting to EPFL VPN as $user..."
+    _x_step "Connecting to the EPFL VPN as $user"
     { print -r -- "$password"; print -r -- "$challenge" } | \
         sudo openconnect -b --useragent=AnyConnect -u "$user" \
             vpn.epfl.ch --passwd-on-stdin
@@ -96,10 +96,10 @@ _x_connect_epfl() {
 
 _x_connect_off() {
     if ! pgrep -x openconnect >/dev/null 2>&1; then
-        print "🔌 Nothing to disconnect."
+        _x_info "Nothing to disconnect."
         return 0
     fi
-    print "👋 Disconnecting..."
+    _x_step "Disconnecting"
     sudo pkill -SIGINT openconnect
 }
 
@@ -109,13 +109,13 @@ case "${1:-}" in
     epfl)             _x_connect_epfl ;;
     off|down|d|disconnect) _x_connect_off ;;
     -h|--help|help)
-        print "Usage: x connect <eth|epfl|off>"
-        print "  eth    ETH Zurich VPN (sslvpn.ethz.ch, student-net)"
-        print "  epfl   EPFL VPN (vpn.epfl.ch)"
-        print "  off    disconnect the current session"
+        _x_usage "x connect <eth|epfl|off>" \
+            "eth    ETH Zurich VPN (sslvpn.ethz.ch, student-net)" \
+            "epfl   EPFL VPN (vpn.epfl.ch)" \
+            "off    disconnect the current session"
         ;;
     *)
-        print "❌ Unknown VPN '$1'. Try: x connect <eth|epfl|off>" >&2
+        _x_err "Unknown VPN '$1'. Try: x connect <eth|epfl|off>"
         return 1
         ;;
 esac
