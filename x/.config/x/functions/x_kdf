@@ -27,8 +27,8 @@ if (( $#o_selftest )); then
 fi
 
 if (( $# != 2 )); then
-    _x_usage "x kdf [-P purpose] [-m -] <keyid> <name>"
-    print -u2 "       x kdf --selftest"
+    _x_usage "x kdf [-P purpose] [-m -] <keyid> <name>" \
+        "x kdf --selftest    check HKDF against RFC 5869"
     return 1
 fi
 local id=$1 name=$2 purpose=${o_purpose[2]:-file}

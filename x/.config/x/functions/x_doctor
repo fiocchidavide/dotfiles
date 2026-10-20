@@ -3,6 +3,8 @@
 # every command file — the same lightweight convention as `## description`.
 # Add a dependency to a new command by adding one such line; nothing else.
 emulate -L zsh
+# Rows are composed in $(…), where stdout is a pipe: decide colour here.
+local X_FANCY_OUT; _x_fancy 1 && X_FANCY_OUT=1
 
 local only="$1"
 local -a missing_all
@@ -29,7 +31,7 @@ for f in $X_FUNCTIONS_DIR/x_*(N); do
     (( ${#req} + ${#opt} == 0 )) && continue
     any=1
 
-    print -rn -- "  $(_x_paint -o bold ${(r:10:)name}) "
+    print -rn -- "  $(_x_paint -o bold ${(r:12:)name}) "
     for b in $req; do
         if command -v "$b" >/dev/null 2>&1; then
             _x_mark ok $b

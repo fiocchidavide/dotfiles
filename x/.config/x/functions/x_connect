@@ -83,7 +83,7 @@ _x_connect_epfl() {
     password=$(op read "$X_EPFL_PASSWORD_REF")
     challenge=$(op read "$X_EPFL_OTP_REF")
 
-    if [[ -z "$user" || -z "$password" ]]; then
+    if [[ -z "$user" || -z "$password" || -z "$challenge" ]]; then
         _x_err "Couldn't read the credentials from 1Password."
         return 1
     fi

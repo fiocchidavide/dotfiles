@@ -29,7 +29,12 @@ _x_datalab_convert() {
         return 1
     fi
 
+    # Icons come from x.zsh so the Python side speaks the same design language.
+    local fancy=""
+    _x_fancy && fancy=1
     DATALAB_API_KEY=$key X_DATALAB_OUT=${o_out[2]:-output} X_DATALAB_PAGES=${o_pages[2]} \
+        X_DATALAB_OK="$(_x_icon ok)" X_DATALAB_ERR="$(_x_icon err)" X_DATALAB_FANCY=$fancy \
+        X_DATALAB_SGR="${X_COLORS[spin]}" X_QUIET=${X_QUIET:-0} \
         uv run --quiet --no-project --with datalab-python-sdk python - "$@" <<'PY'
 import os, sys, threading, time
 from pathlib import Path
@@ -45,27 +50,43 @@ options = ConvertOptions(
         "keep_pagefooter_in_output": True,
     },
 )
+OK, ERR = os.environ["X_DATALAB_OK"], os.environ["X_DATALAB_ERR"]
+FANCY = bool(os.environ["X_DATALAB_FANCY"])
+QUIET = os.environ["X_QUIET"] not in ("", "0")
+
+
+def dim(text):
+    return f"\033[2m{text}\033[0m" if FANCY else text
+
+
+def elapsed(seconds):
+    """Like _x_elapsed: 4.2s / 3:07 / 1:02:03."""
+    if seconds < 59.95:
+        return f"{seconds:.1f}s"
+    s = int(seconds)
+    return f"{s // 3600}:{s // 60 % 60:02}:{s % 60:02}" if s >= 3600 else f"{s // 60}:{s % 60:02}"
 
 
 class Ticker:
-    """Show elapsed time while a conversion runs: a spinner on a terminal,
-    a log line every 30s otherwise. The API reports no percentage."""
+    """Show elapsed time while a conversion runs, like _x_spin: a spinner on
+    a terminal, a line every 30s otherwise. The API reports no percentage."""
 
     def __init__(self, label):
         self.label, self.done = label, threading.Event()
         self.thread = threading.Thread(target=self.run, daemon=True)
 
     def run(self):
-        t0, tty, i = time.monotonic(), sys.stderr.isatty(), 0
-        while not self.done.wait(0.1 if tty else 30):
-            m, s = divmod(int(time.monotonic() - t0), 60)
-            if tty:
-                print(f"\r\033[K{self.label} {'⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'[i % 10]} converting {m}:{s:02}",
+        t0, i = time.monotonic(), 0
+        while not self.done.wait(0.1 if FANCY else 30):
+            took = elapsed(time.monotonic() - t0)
+            if FANCY:
+                frame = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"[i % 10]
+                print(f"\r\033[K\033[{os.environ['X_DATALAB_SGR']}m{frame}\033[0m {self.label} {dim(took)}",
                       end="", file=sys.stderr, flush=True)
                 i += 1
-            else:
-                print(f"{self.label} still converting ({m}:{s:02})", file=sys.stderr)
-        if tty:
+            elif not QUIET:
+                print(f"{self.label} still converting ({took})", file=sys.stderr)
+        if FANCY:
             print("\r\033[K", end="", file=sys.stderr, flush=True)
 
     def __enter__(self):
@@ -78,26 +99,38 @@ class Ticker:
 
 client = DatalabClient()
 files = [Path(a) for a in sys.argv[1:]]
+# One output folder per input; inputs sharing a name get -2, -3, … rather
+# than overwriting each other.
+out, dests = Path(os.environ["X_DATALAB_OUT"]), []
+for f in files:
+    dest, n = out / f.stem, 1
+    while dest in dests:
+        n += 1
+        dest = out / f"{f.stem}-{n}"
+    dests.append(dest)
+
 failed = 0
-for n, f in enumerate(files, 1):
+for n, (f, dest) in enumerate(zip(files, dests), 1):
     label = f"[{n}/{len(files)}] {f.name}"
-    dest = Path(os.environ["X_DATALAB_OUT"]) / f.stem
-    dest.mkdir(parents=True, exist_ok=True)
     t0 = time.monotonic()
+    error = None
     try:
         with Ticker(label):
             result = client.convert(f, options=options)
+        if not result.success:
+            error = result.error
     except Exception as e:
-        result = None
         error = e
-    took = int(time.monotonic() - t0)
-    if result is None or not result.success:
-        print(f"{label}: failed after {took}s: {error if result is None else result.error}",
-              file=sys.stderr)
+    took = elapsed(time.monotonic() - t0)
+    if error is not None:
+        print(f"{ERR} {label} failed after {took}: {error}", file=sys.stderr)
         failed += 1
         continue
+    dest.mkdir(parents=True, exist_ok=True)
     result.save_output(dest / f.stem)
-    print(f"{label} -> {dest}/ ({result.page_count} pages, {took}s)")
+    if not QUIET:
+        print(f"{OK} {label} → {dest}/ {dim(f'({result.page_count} pages, {took})')}", file=sys.stderr)
+    print(dest)  # stdout: the output folder, for capture by callers
 sys.exit(1 if failed else 0)
 PY
 }

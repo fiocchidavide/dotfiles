@@ -1,5 +1,5 @@
 ## Google Drive from the terminal: remotes from 1Password, up, down, ls, link (rclone)
-#@needs rclone jq op
+#@needs rclone jq op uv
 # Usage:
 #   x gdrive [-r remote] <command> …     every command takes -r (default X_GDRIVE_REMOTE)
 #
@@ -98,7 +98,7 @@ _x_gdrive_remotes() {
         return 0
     fi
     local name client conf st
-    printf '%-10s %-16s %-30s %s\n' remote scope state "used for"
+    _x_heading "$(printf '  %-12s %-16s %-30s %s' remote scope state "used for")"
     for name in ${(f)"$(jq -r '.[].title' <<<$items | sort)"}; do
         client=$(_x_gdrive_client $name)
         conf=$(_x_gdrive_rclone_conf $name)
@@ -113,7 +113,7 @@ _x_gdrive_remotes() {
             st="connected"
         fi
         [[ $name == $X_GDRIVE_REMOTE ]] && st+=" (default)"
-        printf '%-10s %-16s %-30s %s\n' $name "$(jq -r .scope <<<$client)" $st "$(jq -r .use <<<$client)"
+        _x_row $name "$(printf '%-16s %-30s %s' "$(jq -r .scope <<<$client)" $st "$(jq -r .use <<<$client)")"
     done
 }
 
@@ -314,19 +314,38 @@ _x_gdrive_down() {
 }
 
 _x_gdrive_rm() {
+    if (( ! $# )); then
+        _x_usage "x gdrive rm <remote>…"
+        return 1
+    fi
     _x_gdrive_ready || return
-    local p is_dir
+    local p is_dir failed=0
     for p in "$@"; do
+        # "" and "/" both mean the Drive root: never a target.
+        if [[ -z ${p#/} ]]; then
+            _x_err "Refusing to delete the Drive root."
+            (( failed++ ))
+            continue
+        fi
         is_dir=$(rclone lsjson --stat "$(_x_gdrive_path $p)" 2>/dev/null | jq -r .IsDir)
         case $is_dir in
             true)
                 _x_ask_yn "Delete the folder $xg_remote:$p and everything in it?" || continue
-                _x_spin "Deleting $p/" rclone purge "$(_x_gdrive_path $p)" ;;
+                _x_spin "Deleting $p/" rclone purge "$(_x_gdrive_path $p)" || (( failed++ )) ;;
             false)
-                _x_spin "Deleting $p" rclone deletefile "$(_x_gdrive_path $p)" ;;
-            *)  _x_err "Not on Drive: $p" ;;
+                _x_spin "Deleting $p" rclone deletefile "$(_x_gdrive_path $p)" || (( failed++ )) ;;
+            *)  _x_err "Not on Drive (or Drive unreachable): $p"; (( failed++ )) ;;
         esac
     done
+    return $(( failed > 0 ))
+}
+
+# _x_gdrive_nargs <n> <synopsis> <args…>: usage error unless exactly n args.
+_x_gdrive_nargs() {
+    local n=$1 synopsis=$2; shift 2
+    (( $# == n )) && return 0
+    _x_usage "x gdrive $synopsis"
+    return 1
 }
 
 _x_gdrive_link() {
@@ -371,13 +390,20 @@ case $cmd in
     down)   _x_gdrive_down "$@" ;;
     rm)     _x_gdrive_rm "$@" ;;
     link)   _x_gdrive_link "$@" ;;
-    mkdir)  _x_gdrive_ready && rclone mkdir "$(_x_gdrive_path $1)" ;;
-    mv)     _x_gdrive_ready && _x_spin "Moving $1 → $2" rclone moveto "$(_x_gdrive_path $1)" "$(_x_gdrive_path $2)" ;;
+    mkdir)  _x_gdrive_nargs 1 "mkdir <dir>" "$@" && _x_gdrive_ready &&
+                rclone mkdir "$(_x_gdrive_path $1)" ;;
+    mv)     _x_gdrive_nargs 2 "mv <from> <to>" "$@" && _x_gdrive_ready &&
+                _x_spin "Moving $1 → $2" rclone moveto "$(_x_gdrive_path $1)" "$(_x_gdrive_path $2)" ;;
     du)     _x_gdrive_ready && rclone size "$(_x_gdrive_path ${1:-})" ;;
-    cat)    _x_gdrive_ready && rclone cat "$(_x_gdrive_path $1)" ;;
-    rcat)   _x_gdrive_ready && rclone rcat "$(_x_gdrive_path $1)" ;;
-    sha256) _x_gdrive_ready && rclone hashsum sha256 "$(_x_gdrive_path $1)" | cut -d' ' -f1 ;;
-    exists) _x_gdrive_ready && rclone lsjson --stat "$(_x_gdrive_path $1)" >/dev/null 2>&1 ;;
+    cat)    _x_gdrive_nargs 1 "cat <remote>" "$@" && _x_gdrive_ready &&
+                rclone cat "$(_x_gdrive_path $1)" ;;
+    rcat)   _x_gdrive_nargs 1 "rcat <remote>" "$@" && _x_gdrive_ready &&
+                rclone rcat "$(_x_gdrive_path $1)" ;;
+    sha256) _x_gdrive_nargs 1 "sha256 <remote>" "$@" && _x_gdrive_ready &&
+                rclone hashsum sha256 "$(_x_gdrive_path $1)" | cut -d' ' -f1 ;;
+    # exists "" checks the root (x vault init uses that to test the remote).
+    exists) _x_gdrive_nargs 1 "exists <remote>" "$@" && _x_gdrive_ready &&
+                rclone lsjson --stat "$(_x_gdrive_path $1)" >/dev/null 2>&1 ;;
     lsjson) _x_gdrive_ready && rclone lsjson "$(_x_gdrive_path ${1:-})" ;;
     ""|-h|--help|help)
         sed -n '/^# Usage:/,/^$/s/^# \{0,1\}//p' $X_FUNCTIONS_DIR/x_gdrive

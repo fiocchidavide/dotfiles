@@ -17,6 +17,10 @@ if [[ -d "$HOME/Library/pnpm" ]]; then
   export PATH="$PNPM_HOME/bin:$PATH"     # typeset -U above drops a repeat
 fi
 
+# Antigravity IDE CLI (agy-ide)
+[[ -d "$HOME/.antigravity-ide/antigravity-ide/bin" ]] &&
+  export PATH="$HOME/.antigravity-ide/antigravity-ide/bin:$PATH"
+
 # Project locations (layout described in $CODE_DIR/README.md)
 export CODE_DIR="$HOME/Code"
 export MAS_DIR="$CODE_DIR/Projects/MyAnimeSeason"

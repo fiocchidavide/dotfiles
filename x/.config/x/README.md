@@ -63,7 +63,7 @@ the terminal and appends it to `config.zsh`, so it's asked only once.
 3. Optional: declare external dependencies with `#@needs <bin>…` (required)
    and/or `#@needs-optional <bin>…` lines. `x doctor` checks them. Add the
    matching Homebrew formula/cask to `../../../Brewfile`.
-4. Optional: add `functions/x_<name>` to the `_files` case in `_x` (inside
+4. Optional: add `<name>` to the `_files` case in `_x` (inside
    `x.zsh`) if it takes a path argument, or add `functions/_x_<name>_complete`
    for richer sub-argument completion (see `_x_ramdisk_complete`).
 

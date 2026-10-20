@@ -30,9 +30,9 @@ if (( $#f_check && $# == 2 )); then
     expect=$1; shift
 fi
 if (( $# != 1 )); then
-    _x_usage "x unseal [--name N | -p - | -P] [-C dir] [-q] <file.age | ->"
-    print -u2 "       x unseal … -O <file.age | ->               tar stream to stdout"
-    print -u2 "       x unseal … --check [sha256] <file.age | -> verify only"
+    _x_usage "x unseal [--name N | -p - | -P] [-C dir] [-q] <file.age | ->" \
+        "x unseal … -O <file.age | ->                 tar stream to stdout" \
+        "x unseal … --check [sha256] <file.age | ->   verify only"
     return 1
 fi
 local src=$1
@@ -81,7 +81,7 @@ esac
 
 local xstream=(uv run --quiet --no-project python -I $X_DIR/lib/xstream.py)
 local pfd rc=0 t0=$EPOCHREALTIME
-_x_decrypt() {
+_x_unseal_decrypt() {
     exec {pfd}< <(print -r -- $pass)
     { [[ $src == - ]] && cat || cat -- $src } |
         _x_pv -s "$size" -N $label |
@@ -92,7 +92,7 @@ _x_decrypt() {
 if (( $#f_check )); then
     _x_step "Verifying $label"
     {
-        _x_decrypt | $xstream hash --sink ${expect:+--expect} $expect --meta /dev/stdout || rc=$?
+        _x_unseal_decrypt | $xstream hash --sink ${expect:+--expect} $expect --meta /dev/stdout || rc=$?
     } always { (( pfd )) && exec {pfd}<&- }
     if (( rc )); then
         _x_err "$label did not verify."
@@ -103,7 +103,7 @@ if (( $#f_check )); then
 fi
 
 if (( $#f_stdout )); then
-    { _x_decrypt || rc=$? } always { (( pfd )) && exec {pfd}<&- }
+    { _x_unseal_decrypt || rc=$? } always { (( pfd )) && exec {pfd}<&- }
     return rc
 fi
 
@@ -116,7 +116,7 @@ local stage extracted=0
 stage=$(mktemp -d "$dest/.unseal.XXXXXX") || return 1
 _x_step "Unsealing $label → ${dest/#$HOME/~}"
 {
-    _x_decrypt | tar -x -f - -C $stage && extracted=1 || rc=$?
+    _x_unseal_decrypt | tar -x -f - -C $stage && extracted=1 || rc=$?
 } always {
     # Also on Ctrl-C: no half-extracted folder left behind.
     (( pfd )) && exec {pfd}<&-

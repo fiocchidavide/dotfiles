@@ -1,5 +1,6 @@
 ## run $CODE_DIR/ocr/infinity_parser on a file
 #@needs uv
+emulate -L zsh
 if [[ -z "$1" ]]; then
     _x_usage "x ocr <file> [extra args...]"
     return 1

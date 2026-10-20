@@ -1,5 +1,6 @@
 ## download a URL and extract the archive
 #@needs curl aunpack
+emulate -L zsh
 # Check if a URL was provided
 if [[ -z "$1" ]]; then
     _x_usage "x dw <url>"

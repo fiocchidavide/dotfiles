@@ -35,5 +35,24 @@ jobs:
           bash -n x/.config/x/share/open.sh
           python3 -m py_compile x/.config/x/lib/xstream.py
 
+      # open.sh runs on other people's machines (x vault share).
+      - name: Shellcheck the share script
+        run: shellcheck x/.config/x/share/open.sh
+
+      - name: HKDF self-test (RFC 5869 vectors)
+        run: python3 -I x/.config/x/lib/xstream.py selftest
+
       - name: Check Makefile parses
         run: make -n help >/dev/null
+
+  # x seal / x unseal use BSD stat and tar, so the round trip runs on macOS.
+  seal-roundtrip:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install age, zstd, uv and jq
+        run: brew install age zstd uv jq
+
+      - name: Seal, verify and unseal a small tree
+        run: zsh -f .github/scripts/roundtrip.zsh

@@ -24,7 +24,7 @@ ZSH_CUSTOM ?= $(HOME)/.oh-my-zsh/custom
 install: ensure-brew brew link omz ## full bootstrap: Homebrew + deps + symlinks + oh-my-zsh
 
 ensure-brew: ## install Homebrew only if it isn't already present
-	@command -v brew >/dev/null 2>&1 || $(MAKE) install-brew
+	@[ -x "$(BREW)" ] || $(MAKE) install-brew
 
 install-brew: ## install Homebrew via the official installer
 	/bin/bash -c "$$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"

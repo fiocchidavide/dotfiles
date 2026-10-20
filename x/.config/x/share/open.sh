@@ -61,6 +61,8 @@ main() {
     stem=${want%.age}
     for dir in "$PWD" "$HOME/Downloads"; do
         [ -f "$dir/$want" ] && { file="$dir/$want"; break; }
+        # ls -t is the portable way to get the newest; the names are ours.
+        # shellcheck disable=SC2012
         newest=$(ls -t "$dir/$stem"*.age 2>/dev/null | head -n 1 || true)
         [ -n "$newest" ] && { file=$newest; break; }
     done

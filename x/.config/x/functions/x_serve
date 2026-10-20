@@ -118,6 +118,13 @@ _x_serve_webdav() {
     # Clear out a half-dead share (e.g. rclone gone after a reboot).
     _x_serve_stop_webdav quiet
 
+    # Someone else on the port would answer the wait below in rclone's place,
+    # and tailscale would then publish that service instead.
+    if nc -z 127.0.0.1 "$webdav_port" 2>/dev/null; then
+        _x_err "Something else is already listening on 127.0.0.1:$webdav_port."
+        return 1
+    fi
+
     local password
     password=$(op read "$X_WEBDAV_PASSWORD_REF")
     if [[ -z "$password" ]]; then
@@ -136,7 +143,7 @@ _x_serve_webdav() {
     print $! >| $state_dir/webdav.pid
     print -r -- "$dir" >| $state_dir/webdav.dir
 
-    if ! _x_serve_wait_port "$webdav_port"; then
+    if ! _x_serve_wait_port "$webdav_port" || ! _x_serve_rclone_pid >/dev/null; then
         _x_err "rclone never came up on 127.0.0.1:$webdav_port (see ${state_dir/#$HOME/~}/webdav.log)."
         _x_serve_stop_webdav quiet
         _x_serve_tailscale_settle

@@ -2,6 +2,7 @@
 # Multiplexed APFS RAM disks. State is derived from what's actually mounted
 # (dirs matching /Volumes/RAMDisk<N>) rather than a separate stack file, so it
 # stays correct across crashes/reboots.
+emulate -L zsh
 local prefix="/Volumes/RAMDisk"
 local cmd="$1"
 [[ $# -gt 0 ]] && shift
@@ -106,17 +107,27 @@ destroy)
         _x_err "Can't determine the device for $mp."
         return 1
     fi
-    _x_step "Unmounting $mp ($device)"
-    diskutil unmount "$mp" >/dev/null || { _x_err "Unmount failed."; return 1; }
-
     # backing store = Physical Store of the APFS container
     backing=$(diskutil info "${device%s*}" | awk '/Physical Store/{print $NF; exit}')
     if [[ -z $backing ]]; then
         _x_err "Can't determine the backing device."
         return 1
     fi
+    # Only ever detach a ram:// image: a mount point can name any volume, and
+    # detaching its physical store would eject a real disk.
+    if ! hdiutil info | awk -v dev="/dev/$backing" '
+            /^====/       { ram = 0 }
+            /^image-path/ { ram = ($3 ~ /^ram:\/\//) }
+            $1 == dev && ram { found = 1 }
+            END { exit !found }'; then
+        _x_err "$mp isn't a RAM disk; leaving it alone."
+        return 1
+    fi
+
+    _x_step "Unmounting $mp ($device)"
+    diskutil unmount "$mp" >/dev/null || { _x_err "Unmount failed."; return 1; }
     _x_step "Detaching /dev/$backing"
-    hdiutil detach "/dev/$backing" >/dev/null || { _x_err "Eject failed."; return 1; }
+    diskutil eject "/dev/$backing" >/dev/null || { _x_err "Eject failed."; return 1; }
 
     _x_ok "RAM disk at $mp destroyed"
     ;;

@@ -1,4 +1,7 @@
-# Usage:
+## stream a torrent/url in iina, optionally buffered in RAM
+#@needs webtorrent
+#@needs-optional iina fzf
+# Usage: x watch [player] [--ram[=SIZEgb]] [webtorrent flags] <url-or-magnet>
 #   x watch <url-or-magnet>            -> plays in IINA (default)
 #   x watch iina <url-or-magnet>       -> same, player named explicitly
 #   x watch --ram <url-or-magnet>      -> buffers on a RAM disk instead of SSD
@@ -48,10 +51,8 @@
 # ADDING A PLAYER: define `_x_watch_play_<name>` below, taking the target plus
 # any extra webtorrent args. It's picked up by name — no list to keep in sync,
 # and `x watch <name> <url>` starts working immediately.
-## stream a torrent/url in iina, optionally buffered in RAM
-#@needs webtorrent
-#@needs-optional iina fzf
-# Usage: x watch [player] [--ram[=SIZEgb]] [webtorrent flags] <url-or-magnet>
+emulate -L zsh
+
 local player="iina"
 local ram_enabled=0
 local ram_size=8

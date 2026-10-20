@@ -31,6 +31,9 @@
 typeset -g  X_DIR X_FUNCTIONS_DIR
 typeset -gA X_DESCRIPTIONS
 
+# $EPOCHREALTIME, for _x_elapsed and every `t0=$EPOCHREALTIME` in commands.
+zmodload zsh/datetime
+
 # One-time setup: locate our own directory (symlink/stow-safe), put functions/
 # on fpath, and mark every command + completion hook for lazy autoloading.
 _x_init() {
@@ -260,7 +263,6 @@ _x_mark() {
 
 # Seconds since $1 (an $EPOCHREALTIME), formatted 4.2s / 3:07 / 1:02:03.
 _x_elapsed() {
-    zmodload zsh/datetime
     local -F t=$(( EPOCHREALTIME - $1 ))
     local -i s=$t
     if (( t < 59.95 )); then            # %.1f would round anything above to 60.0
@@ -280,7 +282,7 @@ _x_spin() {
     # Not emulate -L zsh: cmd runs in this scope, so it must keep the caller's
     # options (pipe_fail, extended_glob, …).
     setopt local_options no_monitor no_notify
-    zmodload zsh/datetime zsh/zselect
+    zmodload zsh/zselect
     local transient=0
     [[ $1 == -t ]] && { transient=1; shift }
     local label=$1; shift
@@ -360,7 +362,7 @@ _x_ask() {
 # _x_ask_yn <question>: y/N; succeeds only on an explicit y.
 _x_ask_yn() {
     local reply
-    _x_ask reply "$(_x_icon ask 35) $1 [y/N] " || return 1
+    _x_ask reply "$(_x_icon ask) $1 [y/N] " || return 1
     [[ $reply == [yY]* ]]
 }
 

@@ -37,9 +37,9 @@ zparseopts -D -E -F -- k:=o_key -name:=o_name o:=o_out L:=o_level p:=o_pass \
 (( $#f_quiet )) && local X_QUIET=1
 
 if (( $# != 1 )); then
-    _x_usage "x seal [-k keyid] [--name N] [-o out] [-L level] [-z gzip] [--no-pad] [--portable] [--meta F] [-q] <path>"
-    print -u2 "       x seal --random [-o out] … <path>     fresh random key, printed"
-    print -u2 "       x seal -p - [-o out] … <path>         passphrase on stdin"
+    _x_usage "x seal [-k keyid] [--name N] [-o out] [-L level] [-z gzip] [--no-pad] [--portable] [--meta F] [-q] <path>" \
+        "x seal --random [-o out] … <path>    fresh random key, printed" \
+        "x seal -p - [-o out] … <path>        passphrase on stdin"
     return 1
 fi
 local src=${1%/}
