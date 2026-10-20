@@ -11,8 +11,12 @@ local file_name
 
 echo "📥 Downloading..."
 
-# Download the file and capture the dynamically generated file name
-file_name=$(curl -sSL -O -J -w "%{filename_effective}" "$url")
+# Download the file and capture the dynamically generated file name.
+# -f: an HTTP error fails instead of saving the error page as the archive.
+if ! file_name=$(curl -fsSL -O -J -w "%{filename_effective}" "$url"); then
+    echo "❌ Download failed."
+    return 1
+fi
 
 # Check if the file actually exists on disk now
 if [[ ! -f "$file_name" ]]; then

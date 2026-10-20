@@ -24,8 +24,8 @@
 # /Volumes/RAMDisk<N> and points webtorrent's --out at it, so streamed pieces
 # are buffered in RAM instead of the SSD's temp folder. Each run gets its own
 # numbered disk, so concurrent `x watch --ram` invocations don't collide.
-# The disk is torn down automatically when playback ends (EXIT trap), including
-# on Ctrl-C. Default size is 8GiB; override with --ram=<size>[gb].
+# The disk is torn down automatically when playback ends (an always block),
+# including on Ctrl-C. Default size is 8GiB; override with --ram=<size>[gb].
 #
 # IINA, formerly a workaround: webtorrent's --iina invokes
 # `open iina://weblink?url=<href>` with <href> already URL-encoded. We used to
@@ -211,13 +211,19 @@ if (( ram_enabled )); then
     # concurrent `x watch --ram` runs each get an independent buffer.
     local ram_mp
     ram_mp=$(x_ramdisk create "$ram_size") || return 1
-    # zsh: an EXIT trap set inside a function fires when the function
-    # returns (not just on shell exit), so this tears down the RAM disk
-    # on normal completion, early return, or Ctrl-C alike. Destroy this
-    # run's specific disk (not just top-of-stack) to stay correct under
-    # concurrent runs.
-    trap 'echo "🧹 Destroying RAM disk..."; x_ramdisk destroy "$ram_mp"' EXIT
     wt_out=(--out "$ram_mp")
 fi
 
-"$play" "$target" "${wt_out[@]}" "${wt_args[@]}"
+# The always block tears the RAM disk down on normal completion, error or
+# Ctrl-C alike. Not an EXIT trap: that runs after this function's locals are
+# gone, so it would get an empty $ram_mp and destroy whichever disk is on top
+# of the stack. Destroy this run's own disk, to stay correct under concurrent
+# runs.
+{
+    "$play" "$target" "${wt_out[@]}" "${wt_args[@]}"
+} always {
+    if [[ -n $ram_mp ]]; then
+        echo "🧹 Destroying RAM disk..."
+        x_ramdisk destroy "$ram_mp"
+    fi
+}
