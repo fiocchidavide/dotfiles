@@ -88,7 +88,7 @@ main() {
     stage=''
     cleanup() {
         rm -rf "$tmp"
-        [ -n "$stage" ] && rm -rf "$stage" 2>/dev/null || true
+        if [ -n "$stage" ]; then rm -rf "$stage" 2>/dev/null || true; fi
     }
     trap cleanup EXIT
 
