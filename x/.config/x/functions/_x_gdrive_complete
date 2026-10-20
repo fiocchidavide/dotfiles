@@ -34,10 +34,16 @@ elif (( CURRENT == s )); then
     return
 fi
 
-case ${words[s]} in
-    client) (( CURRENT == s + 1 )) && compadd new || _arguments '--scope[OAuth scope]:scope:(drive.file drive drive.readonly drive.appfolder drive.metadata.readonly)' '--use-for[what the remote is for]:text:' '1:name:' ;;
+# _arguments counts arguments from words[2]: drop everything before the
+# subcommand so it is words[1] and `1:` means its first argument.
+local sub=${words[s]}
+shift $(( s - 1 )) words
+(( CURRENT -= s - 1 ))
+
+case $sub in
+    client) (( CURRENT == 2 )) && compadd new || { shift words; (( CURRENT-- )); _arguments '--scope[OAuth scope]:scope:(drive.file drive drive.readonly drive.appfolder drive.metadata.readonly)' '--use-for[what the remote is for]:text:' '1:name:_guard "^-*" "name"' } ;;
     up)     _arguments '-d[Drive folder to upload into]:folder:' '--move[delete local copies after upload]' '*:local file:_files' ;;
     down)   _arguments '-C[local folder to download into]:directory:_files -/' '*:Drive path:' ;;
-    ls)     _arguments '-R[recursive]' '1:Drive folder:' ;;
-    link)   _arguments '--unlink[remove the public link]' '1:Drive path:' ;;
+    ls)     _arguments '-R[recursive]' '1:Drive folder:_guard "^-*" "Drive folder"' ;;
+    link)   _arguments '--unlink[remove the public link]' '1:Drive path:_guard "^-*" "Drive path"' ;;
 esac

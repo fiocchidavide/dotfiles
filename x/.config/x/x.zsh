@@ -191,9 +191,10 @@ _x_err()  { _x_say err 31 "$@" }
 # Seconds since $1 (an $EPOCHREALTIME), formatted 4.2s / 3:07 / 1:02:03.
 _x_elapsed() {
     zmodload zsh/datetime
-    local -i s=$(( EPOCHREALTIME - $1 ))
-    if (( s < 60 )); then
-        printf '%.1fs' $(( EPOCHREALTIME - $1 ))
+    local -F t=$(( EPOCHREALTIME - $1 ))
+    local -i s=$t
+    if (( t < 59.95 )); then            # %.1f would round anything above to 60.0
+        printf '%.1fs' $t
     elif (( s < 3600 )); then
         printf '%d:%02d' $(( s / 60 )) $(( s % 60 ))
     else

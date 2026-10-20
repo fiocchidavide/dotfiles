@@ -273,7 +273,8 @@ _xv_save_index() {
 _xv_matches() {
     setopt local_options no_bad_pattern
     local name=$1 p=$2 a=${3%.age}
-    [[ $name == $a || $p == ${3:a} || $p == *"$3"* || $p == ${~3} || ${p:t} == ${~3} ]]
+    # ${3:A} too: x seal records a symlink argument as its target.
+    [[ $name == $a || $p == ${3:a} || $p == ${3:A} || $p == *"$3"* || $p == ${~3} || ${p:t} == ${~3} ]]
 }
 
 # Archive names in the index matching an argument.
@@ -342,9 +343,10 @@ _xv_put() {
         _x_step "[$i/$#] ${src:a:t}"
         # A heads-up, from the local index cache and staging (no Drive call).
         local -a earlier=($index(N) $S/*.json(N))
-        local when=""
+        local when="" p=${src%/}
+        [[ -L $p ]] && p=${p:A} || p=${p:a}     # the path x seal records
         # Without files, jq would wait on stdin (the very first put).
-        (( $#earlier )) && when=$(jq -rs --arg p ${src:A} \
+        (( $#earlier )) && when=$(jq -rs --arg p $p \
             'map(select(.path == $p) | .created[0:10]) | sort | last // empty' $earlier 2>/dev/null)
         [[ -n $when ]] && _x_info "Already in the vault (sealed $when); this adds another version."
         touch $state/refs/$name.ref
