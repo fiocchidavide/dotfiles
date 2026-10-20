@@ -44,7 +44,7 @@ case $sub in
     client)
         if (( CURRENT == 2 )); then
             compadd new
-        else
+        elif [[ ${words[2]} == new ]]; then
             shift words
             (( CURRENT-- ))
             _arguments '--scope[OAuth scope]:scope:(drive.file drive drive.readonly drive.appfolder drive.metadata.readonly)' '--use-for[what the remote is for]:text:' '1:name:_guard "^-*" "name"'

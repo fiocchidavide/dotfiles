@@ -27,7 +27,7 @@ _x_serve_backend() {
 
 # This node's HTTPS name, trailing dot stripped.
 _x_serve_dnsname() {
-    tailscale status --json | jq -r '.Self.DNSName' | sed 's/\.$//'
+    tailscale status --json | jq -r '.Self.DNSName | rtrimstr(".")'
 }
 
 # Tailnet-side HTTPS ports that currently have a serve config (443, 6767, …).
@@ -102,13 +102,19 @@ _x_serve_tailscale_settle() {
 # Share a directory as WebDAV. rclone serves it on localhost, tailscale fronts
 # it with the node's HTTPS name; both keep running after this shell exits.
 _x_serve_webdav() {
-    if _x_serve_rclone_pid >/dev/null && (( ${(M)#${(f)"$(_x_serve_ports)"}:#443} )); then
-        _x_ok "webdav is already up: $(<$state_dir/webdav.dir)"
-        return 0
-    fi
-    _x_need_config X_WEBDAV_USER X_WEBDAV_PASSWORD_REF || return
     local dir="${1:-${X_WEBDAV_DIR:-$HOME/WebDAV}}"
     dir=${dir:A}
+    if _x_serve_rclone_pid >/dev/null && (( ${(M)#${(f)"$(_x_serve_ports)"}:#443} )); then
+        local serving=$(<$state_dir/webdav.dir)
+        # No folder named: whatever is up is fine.
+        if [[ -z $1 || $serving == $dir ]]; then
+            _x_ok "webdav is already up: $serving"
+            return 0
+        fi
+        _x_warn "webdav is already serving $serving. Run 'x serve off webdav' first."
+        return 1
+    fi
+    _x_need_config X_WEBDAV_USER X_WEBDAV_PASSWORD_REF || return
 
     if [[ ! -d "$dir" ]]; then
         _x_err "No such directory: $dir"

@@ -1,8 +1,10 @@
 ## set monitor brightness (0-100)
 #@needs m1ddc
 emulate -L zsh
-if [[ -z "$1" ]]; then
+# Anything else (even --help) would reach m1ddc as brightness 0.
+if [[ $1 != <-> ]] || (( 10#$1 > 100 )); then
     _x_usage "x shine <0-100>"
+    [[ $1 == (-h|--help|help) ]] && return 0
     return 1
 fi
 m1ddc set luminance "$1"

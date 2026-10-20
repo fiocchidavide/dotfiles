@@ -1,9 +1,9 @@
 ## download a URL and extract the archive
 #@needs curl aunpack
 emulate -L zsh
-# Check if a URL was provided
-if [[ -z "$1" ]]; then
+if [[ -z "$1" || $1 == (-h|--help|help) ]]; then
     _x_usage "x dw <url>"
+    [[ -n "$1" ]] && return 0
     return 1
 fi
 
@@ -14,7 +14,7 @@ _x_step "Downloading $url"
 
 # Download the file and capture the dynamically generated file name.
 # -f: an HTTP error fails instead of saving the error page as the archive.
-if ! file_name=$(curl -fsSL -O -J -w "%{filename_effective}" "$url"); then
+if ! file_name=$(curl -fsSL -O -J -w "%{filename_effective}" -- "$url"); then
     _x_err "Download failed."
     return 1
 fi

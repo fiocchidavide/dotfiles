@@ -237,6 +237,20 @@ _x_usage() {
     done
 }
 
+# _x_help <command> [asked]: the "# Usage:" comment block of x_<command>.
+# Asked for (-h, --help, help): stdout, status 0. Otherwise, as the error for
+# a missing subcommand: stderr, status 1.
+_x_help() {
+    local block
+    block=$(sed -n '/^# Usage:/,/^$/s/^# \{0,1\}//p' $X_FUNCTIONS_DIR/x_$1)
+    if [[ -n $2 ]]; then
+        print -r -- $block
+    else
+        print -u2 -r -- $block
+        return 1
+    fi
+}
+
 # Reports on stdout: a bold heading, aligned name/description rows, and items
 # led by a role icon (on/half/off for state, ok/err for checks).
 #   _x_heading "Commands"; _x_row vault "encrypted backups"
@@ -281,7 +295,8 @@ _x_elapsed() {
 _x_spin() {
     # Not emulate -L zsh: cmd runs in this scope, so it must keep the caller's
     # options (pipe_fail, extended_glob, …).
-    setopt local_options no_monitor no_notify
+    # no_bg_nice: renicing the spinner fails (and says so) where nice is denied.
+    setopt local_options no_monitor no_notify no_bg_nice
     zmodload zsh/zselect
     local transient=0
     [[ $1 == -t ]] && { transient=1; shift }
@@ -296,9 +311,9 @@ _x_spin() {
     if ! _x_fancy || (( ${X_QUIET:-0} )); then
         "$@" || rc=$?
         if (( rc )); then
-            _x_err "$label failed"
-        elif (( ! transient && ! ${X_QUIET:-0} )); then
-            _x_ok "$label ($(_x_elapsed $t0))"
+            _x_err "$label failed ($(_x_elapsed $t0))"
+        elif (( ! transient )); then
+            _x_ok "$label $(_x_paint dim "($(_x_elapsed $t0))")"
         fi
         return rc
     fi
@@ -311,12 +326,18 @@ _x_spin() {
             (( i++ ))
             zselect -t 10
         done
-    } &!
-    local spinner=$!
+    } >/dev/null &!     # not stdout: inside $(…) it would hold the pipe open
+    local spinner=$! n
     {
         "$@" || rc=$?
     } always {
+        # Disowned, so no `wait` (and no job notice): give it up to 0.2s to
+        # go, or a last frame can land after the line is cleared.
         kill $spinner 2>/dev/null
+        for n in {1..20}; do
+            kill -0 $spinner 2>/dev/null || break
+            zselect -t 1
+        done
         printf '\r\e[K' >&2
     }
     if (( rc )); then
@@ -348,12 +369,13 @@ _x_ask() {
     local -a silent
     [[ $3 == -s ]] && silent=(-s)
     if { : </dev/tty } 2>/dev/null; then
-        read -r $silent "$1?$2" </dev/tty || return
+        # On EOF (Ctrl-D) still end the prompt's line.
+        read -r $silent "$1?$2" </dev/tty || { print -u2; return 1 }
         if (( $#silent )); then
             print -u2
         fi
     else
-        print -u2 -n -- "$2"
+        print -u2 -rn -- "$2"
         read -r $silent "$1" || return
         print -u2
     fi
@@ -400,7 +422,7 @@ _x() {
 
     # Fallback: complete file paths for commands that take one.
     case "${words[2]}" in
-        extrct|ocr|copypath|undmg|seal|unseal) _files ;;
+        extrct|ocr|copypath|undmg|seal|unseal|watch) _files ;;
         *) ;;
     esac
 }

@@ -152,7 +152,7 @@ list|ls)
         "create <size_in_GiB>          create the next disk (RAMDisk0, RAMDisk1, …)" \
         "destroy [<index>|<mp>|all]    destroy top of stack (LIFO), a specific one, or all" \
         "list                          list mounted RAM disks"
-    return 1
+    [[ -n $cmd ]] || return 1     # asked for: fine; no subcommand: an error
     ;;
 
 *)

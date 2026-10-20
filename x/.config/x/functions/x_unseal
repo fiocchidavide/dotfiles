@@ -20,20 +20,20 @@
 emulate -L zsh
 setopt extended_glob pipe_fail
 
-local -a o_dir o_name o_pass o_size o_comp f_stdout f_check f_prompt f_quiet
+local -a o_dir o_name o_pass o_size o_comp f_stdout f_check f_prompt f_quiet f_help
 zparseopts -D -E -F -- C:=o_dir -name:=o_name p:=o_pass P=f_prompt O=f_stdout \
-    -check=f_check -size:=o_size z:=o_comp q=f_quiet || return 1
+    -check=f_check -size:=o_size z:=o_comp q=f_quiet h=f_help -help=f_help || return 1
 (( $#f_quiet )) && local X_QUIET=1
 
 local expect=""
 if (( $#f_check && $# == 2 )); then
     expect=$1; shift
 fi
-if (( $# != 1 )); then
+if (( $#f_help || $# != 1 )); then
     _x_usage "x unseal [--name N | -p - | -P] [-C dir] [-q] <file.age | ->" \
         "x unseal … -O <file.age | ->                 tar stream to stdout" \
         "x unseal … --check [sha256] <file.age | ->   verify only"
-    return 1
+    return $(( ! $#f_help ))
 fi
 local src=$1
 if [[ $src != - && ! -f $src ]]; then
@@ -81,8 +81,10 @@ esac
 
 local xstream=(uv run --quiet --no-project python -I $X_DIR/lib/xstream.py)
 local pfd rc=0 t0=$EPOCHREALTIME
+# Each branch opens the passphrase fd itself, in this shell, so its always
+# block is what closes it (this function often runs piped, in a subshell).
+_x_unseal_open_pass() { exec {pfd}< <(print -r -- $pass) }
 _x_unseal_decrypt() {
-    exec {pfd}< <(print -r -- $pass)
     if [[ $src == - ]]; then cat; else cat -- $src; fi |
         _x_pv -s "$size" -N $label |
         AGE_PASSPHRASE_FD=$pfd age -d -j batchpass |
@@ -92,6 +94,7 @@ _x_unseal_decrypt() {
 if (( $#f_check )); then
     _x_step "Verifying $label"
     {
+        _x_unseal_open_pass
         _x_unseal_decrypt | $xstream hash --sink ${expect:+--expect} $expect --meta /dev/stdout || rc=$?
     } always { (( pfd )) && exec {pfd}<&- }
     if (( rc )); then
@@ -103,7 +106,7 @@ if (( $#f_check )); then
 fi
 
 if (( $#f_stdout )); then
-    { _x_unseal_decrypt || rc=$? } always { (( pfd )) && exec {pfd}<&- }
+    { _x_unseal_open_pass; _x_unseal_decrypt || rc=$? } always { (( pfd )) && exec {pfd}<&- }
     return rc
 fi
 
@@ -116,6 +119,7 @@ local stage extracted=0
 stage=$(mktemp -d "$dest/.unseal.XXXXXX") || return 1
 _x_step "Unsealing $label → ${dest/#$HOME/~}"
 {
+    _x_unseal_open_pass
     _x_unseal_decrypt | tar -x -f - -C $stage && extracted=1 || rc=$?
 } always {
     # Also on Ctrl-C: no half-extracted folder left behind.

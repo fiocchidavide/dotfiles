@@ -87,13 +87,14 @@ main() {
 
     tmp=$(mktemp -d "${TMPDIR:-/tmp}/open-share.XXXXXX")
     stage=''
+    # The stage first: it may sit inside $tmp, and an archive can hold
+    # read-only folders, which rm -rf can't empty.
     cleanup() {
-        rm -rf "$tmp"
         if [ -n "$stage" ]; then
-            # An archive can hold read-only folders, which rm -rf can't empty.
             chmod -R u+w "$stage" 2>/dev/null || true
             rm -rf "$stage" 2>/dev/null || true
         fi
+        rm -rf "$tmp" 2>/dev/null || true
     }
     trap cleanup EXIT
 
@@ -148,7 +149,10 @@ main() {
 
     [ -w "$dest" ] || { sudo=sudo; step "$dest needs administrator rights (sudo)"; }
     for item in "${items[@]}"; do
-        if present "$dest/$item"; then $sudo rm -rf "$dest/$item"; fi
+        if present "$dest/$item"; then
+            $sudo chmod -R u+w "$dest/$item" 2>/dev/null || true
+            $sudo rm -rf "$dest/$item"
+        fi
         $sudo mv "$stage/$item" "$dest/$item"
         ok "$dest/$item"
     done

@@ -38,6 +38,12 @@ setopt extended_glob pipe_fail
 local usage="x gdrive [-r remote] remotes | client | login | logout | status | ls | up | down | rm | mkdir | mv | du | link"
 local -a xg_scopes=(drive.file drive drive.readonly drive.appfolder drive.metadata.readonly)
 
+# Help needs no settings, and -h would trip zparseopts -F below.
+case ${1:-} in
+    "")               _x_help gdrive; return ;;
+    -h|--help|help)   _x_help gdrive asked; return ;;
+esac
+
 local -a o_remote
 zparseopts -D -F -- r:=o_remote || return 1
 _x_ask_config X_GDRIVE_OP_VAULT "1Password vault for Google Drive OAuth clients" x-gdrive || return
@@ -76,12 +82,13 @@ _x_gdrive_run() {
     fi
 }
 
-# The 1Password item for a remote as {client_id, client_secret, scope, use}.
+# The 1Password item for a remote as {client_id, client_secret, scope, use};
+# nothing (and status 0) if it can't be read: the callers say what's missing.
 _x_gdrive_client() {
     op item get "$1" --vault $X_GDRIVE_OP_VAULT --format json 2>/dev/null |
         jq -c '[.fields[]? | {(.label): (.value // "")}] | add
                | {client_id: (.["client id"] // ""), client_secret: (.["client secret"] // ""),
-                  scope: (.scope // ""), use: (.["used for"] // "")}'
+                  scope: (.scope // ""), use: (.["used for"] // "")}' || true
 }
 
 # What rclone currently has for a remote, or nothing.
@@ -160,7 +167,7 @@ _x_gdrive_login() {
     local client conf id secret scope
     client=$(_x_spin -t "Reading client '$xg_remote' from 1Password" _x_gdrive_client $xg_remote)
     if [[ -z $client ]]; then
-        _x_err "No item '$xg_remote' in the 1Password vault $X_GDRIVE_OP_VAULT."
+        _x_err "Couldn't read '$xg_remote' from the 1Password vault $X_GDRIVE_OP_VAULT (missing, or op isn't signed in)."
         _x_info "Scaffold it with: x gdrive client new $xg_remote --scope drive.file"
         return 1
     fi
@@ -250,7 +257,7 @@ _x_gdrive_up() {
         _x_usage "x gdrive up [-d remote-dir] [--move] <local>…"
         return 1
     fi
-    local dir=${o_dir[2]:-} src dest verb=copy failed=0 t0
+    local dir=${o_dir[2]:-} src name dest verb=copy failed=0 t0
     (( $#f_move )) && verb=move
     local -a extra
     local -i i=0
@@ -262,21 +269,23 @@ _x_gdrive_up() {
             (( failed++ ))
             continue
         fi
-        dest=$(_x_gdrive_path ${dir:+$dir/}${src:t})
-        (( $#f_bare )) || _x_step "[$i/$#] ${src:t} → $dest"
+        # :a first, so "." and ".." upload under the folder's real name.
+        name=${src:a:t}
+        dest=$(_x_gdrive_path ${dir:+$dir/}$name)
+        (( $#f_bare )) || _x_step "[$i/$#] $name → $dest"
         t0=$EPOCHREALTIME
         if [[ -d $src ]]; then
             extra=()
             [[ $verb == move ]] && extra=(--delete-empty-src-dirs)
-            _x_gdrive_run ${src:t} $verb --checksum $extra -- $src $dest
+            _x_gdrive_run $name $verb --checksum $extra -- $src $dest
         else
-            _x_gdrive_run ${src:t} ${verb}to --checksum -- $src $dest
+            _x_gdrive_run $name ${verb}to --checksum -- $src $dest
         fi
         if (( $? )); then
-            _x_err "Upload of ${src:t} failed."
+            _x_err "Upload of $name failed."
             (( failed++ ))
         else
-            (( $#f_bare )) || _x_ok "${src:t} uploaded in $(_x_elapsed $t0)${f_move:+ (local copy removed)}"
+            (( $#f_bare )) || _x_ok "$name uploaded in $(_x_elapsed $t0)${f_move:+ (local copy removed)}"
         fi
     done
     return $(( failed > 0 ))
@@ -405,10 +414,8 @@ case $cmd in
     exists) _x_gdrive_nargs 1 "exists <remote>" "$@" && _x_gdrive_ready &&
                 rclone lsjson --stat "$(_x_gdrive_path $1)" >/dev/null 2>&1 ;;
     lsjson) _x_gdrive_ready && rclone lsjson "$(_x_gdrive_path ${1:-})" ;;
-    ""|-h|--help|help)
-        sed -n '/^# Usage:/,/^$/s/^# \{0,1\}//p' $X_FUNCTIONS_DIR/x_gdrive
-        [[ -n $cmd ]] || return 1
-        ;;
+    "")               _x_help gdrive ;;
+    -h|--help|help)   _x_help gdrive asked ;;
     *)
         _x_err "Unknown subcommand '$cmd'."
         _x_usage $usage

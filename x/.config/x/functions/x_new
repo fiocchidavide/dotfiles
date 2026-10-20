@@ -2,7 +2,8 @@
 emulate -L zsh
 local name="$1"
 [[ -z $name ]] && { _x_usage "x new <name>"; return 1; }
-[[ $name == [A-Za-z_]* ]] || { _x_err "A command name must start with a letter or underscore."; return 1; }
+[[ $name =~ '^[A-Za-z_][A-Za-z0-9_-]*$' ]] ||
+    { _x_err "A command name is a letter or underscore, then letters, digits, _ or -."; return 1; }
 local file="$X_FUNCTIONS_DIR/x_${name}"
 [[ -e $file ]] && { _x_err "${file/#$HOME/~} already exists (use: x edit $name)"; return 1; }
 
@@ -16,5 +17,7 @@ _x_info "TODO: implement this command"
 EOF
 
 _x_ok "Created ${file/#$HOME/~}"
+# Reload after editing, so x and completion pick up the real description.
+# ${=…}: EDITOR="code --wait" is a command and its arguments.
+${=EDITOR:-vi} "$file"
 x_reload
-${EDITOR:-vi} "$file"

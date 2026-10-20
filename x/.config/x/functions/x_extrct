@@ -9,4 +9,12 @@ fi
 local input="$1"
 local pages="$2"
 local output="${3:-${input:r}_pages_${pages//,/_}.pdf}"
+if [[ ! -f $input ]]; then
+    _x_err "No such file: $input"
+    return 1
+fi
+if [[ -e $output ]]; then
+    _x_err "Output already exists: $output"
+    return 1
+fi
 mutool merge -o "$output" "$input" "$pages" && _x_ok "Extracted to $output"

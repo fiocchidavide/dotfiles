@@ -139,6 +139,10 @@ _x_vault_key_new() {
 }
 
 _x_vault_key_use() {
+    if (( $# != 1 )); then
+        _x_usage "x vault keys use <id>"
+        return 1
+    fi
     local id=$1
     if [[ $id != [a-z2-7](#c6) ]] || ! op item get $id --vault $X_VAULT_OP_VAULT >/dev/null 2>&1; then
         _x_err "No key '$id' in $X_VAULT_OP_VAULT."
@@ -279,9 +283,14 @@ _x_vault_save_index() {
 # syntax just doesn't match as a glob.
 _x_vault_matches() {
     setopt local_options no_bad_pattern
-    local name=$1 p=$2 a=${3%.age}
-    # ${3:A} too: x seal records a symlink argument as its target.
-    [[ $name == $a || $p == ${3:a} || $p == ${3:A} || $p == *"$3"* || $p == ${~3} || ${p:t} == ${~3} ]]
+    local name=$1 p=$2 arg=$3
+    # As x vault ls prints paths: a leading ~ (often quoted, so unexpanded)
+    # and a trailing / on folders.
+    [[ $arg == '~' || $arg == '~/'* ]] && arg=$HOME${arg#\~}
+    [[ $arg == ?*/ ]] && arg=${arg%%/##}
+    local a=${arg%.age}
+    # ${arg:A} too: x seal records a symlink argument as its target.
+    [[ $name == $a || $p == ${arg:a} || $p == ${arg:A} || $p == *"$arg"* || $p == ${~arg} || ${p:t} == ${~arg} ]]
 }
 
 # Archive names in the index matching an argument.
@@ -300,26 +309,33 @@ _x_vault_entry() { jq -c --arg n $1 'select(.name == $n)' $index | head -1 }
 # since it was sealed, re-checking first that the copy on Drive decrypts to
 # the same content.
 _x_vault_offer_delete() {
-    local name=$1 entry p ref
+    local name=$1 entry p ref rc=0
     entry=$(_x_vault_entry $name)
     p=$(jq -r .path <<<$entry)
     ref=$state/refs/$name.ref
-    [[ -e $p ]] || { rm -f $ref; return 0 }
-    if [[ -e $ref && -n $(find $p \( -newer $ref -o -cnewer $ref \) -print -quit 2>/dev/null) ]]; then
-        _x_warn "${p/#$HOME/~} changed after it was sealed; keeping it."
-        rm -f $ref
-        return 0
-    fi
-    rm -f $ref
-    _x_ask_yn "Delete the original ${p/#$HOME/~} ($(_x_bytes $(jq -r .tar.bytes <<<$entry)))?" || return 0
-    _x_step "Re-reading ${name}.age from Drive before deleting"
-    _x_vault_gdrive cat $R/$name.age |
-        x_unseal --name $name --size $(jq -r .size <<<$entry) \
-            --check $(jq -r .tar.sha256 <<<$entry) - >/dev/null || {
-        _x_err "Verification failed; ${p/#$HOME/~} was NOT deleted."
-        return 1
-    }
-    rm -rf -- $p && _x_ok "Deleted ${p/#$HOME/~}"
+    # Anything under p modified since the ref was touched (just before sealing)?
+    _x_vault_changed() { [[ -e $ref && -n $(find $p \( -newer $ref -o -cnewer $ref \) -print -quit 2>/dev/null) ]] }
+    {
+        [[ -e $p ]] || return 0
+        if _x_vault_changed; then
+            _x_warn "${p/#$HOME/~} changed after it was sealed; keeping it."
+            return 0
+        fi
+        _x_ask_yn "Delete the original ${p/#$HOME/~} ($(_x_bytes $(jq -r .tar.bytes <<<$entry)))?" || return 0
+        _x_step "Re-reading ${name}.age from Drive before deleting"
+        _x_vault_gdrive cat $R/$name.age |
+            x_unseal --name $name --size $(jq -r .size <<<$entry) \
+                --check $(jq -r .tar.sha256 <<<$entry) - >/dev/null || {
+            _x_err "Verification failed; ${p/#$HOME/~} was NOT deleted."
+            return 1
+        }
+        # Again: it may have changed during the prompt or the re-read.
+        if _x_vault_changed; then
+            _x_warn "${p/#$HOME/~} changed while it was being checked; keeping it."
+            return 0
+        fi
+        rm -rf -- $p && _x_ok "Deleted ${p/#$HOME/~}"
+    } always { rm -f $ref }
 }
 
 _x_vault_put() {
@@ -445,7 +461,7 @@ _x_vault_push() {
         local -i total=0
         local m
         for m in $staged; do
-            print -u2 "  $(jq -r '.created[0:10]' $m)  $(_x_bytes $(jq -r .size $m))  $(jq -r .path $m | sed "s|^$HOME|~|")"
+            print -u2 "  $(jq -r '.created[0:10]' $m)  $(_x_bytes $(jq -r .size $m))  ${$(jq -r .path $m)/#$HOME/~}"
             (( total += $(jq -r .size $m) ))
         done
         _x_info "${#staged} archive(s), $(_x_bytes $total) would be pushed."
@@ -546,7 +562,8 @@ _x_vault_get() {
     local name entry
     name=$(_x_vault_pick_one $1) || return
     entry=$(_x_vault_entry $name)
-    _x_step "Restoring $(jq -r .path <<<$entry | sed "s|^$HOME|~|")"
+    local p=$(jq -r .path <<<$entry)
+    _x_step "Restoring ${p/#$HOME/~}"
     _x_vault_gdrive cat $R/$name.age |
         x_unseal --name $name --size $(jq -r .size <<<$entry) -C ${o_dir[2]:-.} -
 }
@@ -597,7 +614,12 @@ _x_vault_rekey() {
     if [[ -n ${o_larger[2]} ]]; then larger=$(_x_vault_size ${o_larger[2]}) || return 1; fi
     if [[ -n ${o_smaller[2]} ]]; then smaller=$(_x_vault_size ${o_smaller[2]}) || return 1; fi
     local to=${o_to[2]}
-    if [[ -z $to ]]; then
+    if [[ -n $to ]]; then
+        if [[ $to != [a-z2-7](#c6) ]] || ! op item get $to --vault $X_VAULT_OP_VAULT >/dev/null 2>&1; then
+            _x_err "No key '$to' in $X_VAULT_OP_VAULT."
+            return 1
+        fi
+    else
         _x_vault_current || return
         to=$xv_current
     fi
@@ -645,6 +667,11 @@ _x_vault_rekey() {
         chosen=(${(f)"$(for n in $chosen; do _x_vault_entry $n | jq -r '"\(.name)\t\(.key)\t\(.path)"'; done |
             fzf --multi --delimiter=$'\t' --with-nth=2,3 --prompt="rekey to $to> " |
             cut -f1)"})
+        # Esc in fzf, as in x vault push: a choice not made, not "nothing to do".
+        if (( ! $#chosen )); then
+            _x_warn "Nothing selected; nothing rekeyed."
+            return 1
+        fi
         total=0
         for n in $chosen; do (( total += $(_x_vault_entry $n | jq -r .size) )); done
     fi
@@ -655,13 +682,16 @@ _x_vault_rekey() {
 
     _x_step "${#chosen} archive(s), $(_x_bytes $total), to key $to"
     for n in $chosen; do
-        _x_vault_entry $n | jq -r '"  \(.key)  \(.path)"' | sed "s|$HOME|~|"
+        _x_vault_entry $n | jq -r --arg home $HOME '"  \(.key)  \(.path | sub("^" + $home; "~"))"'
     done >&2
     if (( $#f_dry )); then
         _x_info "Dry run; nothing changed."
         return 0
     fi
 
+    # Each master key is read from 1Password once for the whole batch, not
+    # twice per archive; _x_vault_rekey_one derives from these.
+    local -A masters
     local -i i=0 failed=0
     for name in $chosen; do
         (( i++ ))
@@ -669,6 +699,15 @@ _x_vault_rekey() {
     done
     (( failed )) && _x_warn "$failed archive(s) failed; rerun the same command to retry them."
     return $(( failed > 0 ))
+}
+
+# _x_vault_master <id>: read master key <id> into $masters (a local of the
+# caller), unless it's there already. Call it directly, not in $(…).
+_x_vault_master() {
+    [[ -n ${masters[$1]} ]] && return 0
+    masters[$1]=$(_x_spin -t "Reading key $1 from 1Password" \
+        op read --no-newline "op://$X_VAULT_OP_VAULT/$1/key") || return 1
+    [[ -n ${masters[$1]} ]] || { _x_err "Empty master key for $1."; return 1 }
 }
 
 # Swap only the outer age layer: Drive -> decrypt -> encrypt -> Drive, with
@@ -680,8 +719,9 @@ _x_vault_rekey_one() {
     local entry new old_pass new_pass tmp ofd nfd rc=0
     entry=$(_x_vault_entry $old)
     new=$to.$(_x_vault_rand 26)
-    old_pass=$(x_kdf ${old%%.*} $old) || return
-    new_pass=$(x_kdf $to $new) || return
+    _x_vault_master ${old%%.*} && _x_vault_master $to || return
+    old_pass=$(print -r -- ${masters[${old%%.*}]} | x_kdf -m - ${old%%.*} $old) || return
+    new_pass=$(print -r -- ${masters[$to]} | x_kdf -m - $to $new) || return
     tmp=$(mktemp -d "${TMPDIR:-/tmp}/xvault.XXXXXX") || return
     _x_step "[$i/$n] $(jq -r '.path | split("/") | last' <<<$entry): ${old%%.*} → $to"
     {
@@ -745,7 +785,7 @@ _x_vault_rm() {
     local -i total=0
     _x_step "${#names} archive(s) to delete from Drive:"
     for n in $names; do
-        _x_vault_entry $n | jq -r '"  \(.created[0:10])  \(.key)  \(.path)"' | sed "s|$HOME|~|" >&2
+        _x_vault_entry $n | jq -r --arg home $HOME '"  \(.created[0:10])  \(.key)  \(.path | sub("^" + $home; "~"))"' >&2
         (( total += $(_x_vault_entry $n | jq -r .size) ))
     done
     _x_info "$(_x_bytes $total) on Drive. Originals on this Mac are not touched."
@@ -830,16 +870,21 @@ _x_vault_share() {
     origin=$(git -C $repo remote get-url origin)
     origin=${${${origin%.git}#git@github.com:}#https://github.com/}
 
-    local name=share-$(_x_vault_rand 16) pass tmp rc=0 url
+    local name=share-$(_x_vault_rand 16) pass tmp rc=0 url uploaded=0
     pass=$(head -c 32 /dev/urandom | base64 | tr '+/' '-_' | tr -d '=\n')
     tmp=$(mktemp -d "${TMPDIR:-/tmp}/xvault.XXXXXX") || return
     {
         print -r -- $pass | x_seal -p - -z gzip --portable --name $name \
             -o $tmp/$name.age $src >/dev/null &&
-            _x_vault_gdrive up --bare -d $R/shares $tmp/$name.age &&
+            _x_vault_gdrive up --bare -d $R/shares $tmp/$name.age && uploaded=1 &&
             url=$(_x_vault_gdrive link $R/shares/$name.age) || rc=1
     } always { rm -rf -- $tmp }
-    (( rc )) && { _x_err "Sharing ${src:t} failed."; return 1 }
+    if (( rc )); then
+        # Uploaded but no link: nobody can use it, and x vault check doesn't look in shares/.
+        (( uploaded )) && _x_vault_gdrive rm $R/shares/$name.age >/dev/null 2>&1
+        _x_err "Sharing ${src:t} failed."
+        return 1
+    fi
 
     local to=${o_to[2]:+ --to ${(q)o_to[2]}}
     local message="I'm sending you ${src:t} (encrypted).
@@ -859,11 +904,8 @@ curl -fsSL https://raw.githubusercontent.com/$origin/$sha/$script | bash -s -- $
 local cmd=${1:-}
 (( $# )) && shift
 case $cmd in
-    ""|-h|--help|help)
-        sed -n '/^# Usage:/,/^$/s/^# \{0,1\}//p' $X_FUNCTIONS_DIR/x_vault
-        [[ -n $cmd ]] || return 1
-        return 0
-        ;;
+    "")               _x_help vault; return ;;
+    -h|--help|help)   _x_help vault asked; return ;;
 esac
 _x_vault_config || return
 case $cmd in

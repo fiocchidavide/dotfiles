@@ -30,17 +30,17 @@ emulate -L zsh
 setopt extended_glob pipe_fail
 
 local -a o_key o_name o_out o_level o_pass o_meta o_comp
-local -a f_random f_nopad f_portable f_quiet
+local -a f_random f_nopad f_portable f_quiet f_help
 zparseopts -D -E -F -- k:=o_key -name:=o_name o:=o_out L:=o_level p:=o_pass \
     -meta:=o_meta z:=o_comp -random=f_random -no-pad=f_nopad -portable=f_portable \
-    q=f_quiet || return 1
+    q=f_quiet h=f_help -help=f_help || return 1
 (( $#f_quiet )) && local X_QUIET=1
 
-if (( $# != 1 )); then
+if (( $#f_help || $# != 1 )); then
     _x_usage "x seal [-k keyid] [--name N] [-o out] [-L level] [-z gzip] [--no-pad] [--portable] [--meta F] [-q] <path>" \
         "x seal --random [-o out] … <path>    fresh random key, printed" \
         "x seal -p - [-o out] … <path>        passphrase on stdin"
-    return 1
+    return $(( ! $#f_help ))
 fi
 local src=${1%/}
 if [[ ! -e $src ]]; then

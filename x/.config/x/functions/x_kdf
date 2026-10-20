@@ -17,8 +17,9 @@
 emulate -L zsh
 setopt extended_glob
 
-local -a o_purpose o_master o_selftest
-zparseopts -D -E -F -- P:=o_purpose m:=o_master -selftest=o_selftest || return 1
+local -a o_purpose o_master o_selftest f_help
+zparseopts -D -E -F -- P:=o_purpose m:=o_master -selftest=o_selftest \
+    h=f_help -help=f_help || return 1
 
 local xstream=$X_DIR/lib/xstream.py
 if (( $#o_selftest )); then
@@ -26,10 +27,10 @@ if (( $#o_selftest )); then
     return
 fi
 
-if (( $# != 2 )); then
+if (( $#f_help || $# != 2 )); then
     _x_usage "x kdf [-P purpose] [-m -] <keyid> <name>" \
         "x kdf --selftest    check HKDF against RFC 5869"
-    return 1
+    return $(( ! $#f_help ))
 fi
 local id=$1 name=$2 purpose=${o_purpose[2]:-file}
 if [[ $id != [a-z2-7](#c6) ]]; then

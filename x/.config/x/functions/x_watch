@@ -205,7 +205,7 @@ if (( ! ${+functions[$play]} )); then
 fi
 
 if (( interactive_pick )); then
-    if (( ${wt_args[(I)-s]} + ${wt_args[(I)--select]} )); then
+    if (( ${wt_args[(I)-s]} + ${wt_args[(I)--select*]} )); then
         _x_err "Use either -i or -s, not both."
         return 1
     fi

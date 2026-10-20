@@ -37,6 +37,10 @@ case $sub in
             _describe 'keys subcommand' keycmds
         elif [[ ${words[2]} == new ]]; then
             _arguments '--use[make it the current key]'
+        elif [[ ${words[2]} == use ]]; then
+            shift words
+            (( CURRENT-- ))
+            _arguments '1:key id:_guard "^-*" "key id"'
         elif [[ ${words[2]} == retire ]]; then
             shift words
             (( CURRENT-- ))

@@ -28,6 +28,10 @@ x/.config/x/config.zsh
 vscode/Library/Application Support/Code/User/*
 !vscode/Library/Application Support/Code/User/keybindings.json
 
+# And for ghostty: only its config is versioned.
+ghostty/Library/Application Support/com.mitchellh.ghostty/*
+!ghostty/Library/Application Support/com.mitchellh.ghostty/config.ghostty
+
 # And for claude: ~/.claude holds session history, transcripts, caches and
 # credentials — only the global CLAUDE.md is versioned.
 claude/.claude/*
