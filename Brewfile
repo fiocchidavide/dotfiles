@@ -6,23 +6,26 @@
 # with the `#@needs` lines in x/.config/x/functions/x_*.
 
 # --- x command runtime deps ---
+brew "age"            # x seal, x unseal, x vault  (age, age-plugin-batchpass)
 brew "aria2"          # x fastdw   (aria2c)
 brew "atool"          # x dw       (aunpack)
 brew "mupdf-tools"    # x extrct   (mutool)
 brew "m1ddc"          # x shine
 brew "openconnect"    # x connect
-brew "rclone"         # x serve webdav
-brew "uv"             # x ocr, x datalab, mas
+brew "pv"             # x seal, x vault  (progress bars; optional)
+brew "rclone"         # x serve webdav, x gdrive, x vault
+brew "uv"             # x ocr, x datalab, x kdf, x seal, x vault, mas
+brew "zstd"           # x seal, x unseal, x vault
 
 # --- dotfiles / shell tooling ---
 brew "stow"           # dotfiles symlink management
 brew "fnm"            # node version manager (provides node for webtorrent)
 brew "zoxide"
-brew "fzf"
+brew "fzf"            # also x vault rekey -i (optional)
 brew "pure"           # prompt
 
 # --- casks ---
-cask "1password-cli"  # x connect, x datalab  (op)
+cask "1password-cli"  # x connect, x datalab, x kdf, x vault  (op)
 cask "iina"           # x watch iina
 
 # --- not available via Homebrew (install manually) ---

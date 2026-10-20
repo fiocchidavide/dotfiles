@@ -30,3 +30,18 @@ X_WEBDAV_DIR="$HOME/WebDAV"
 
 # --- x datalab --------------------------------------------------------------
 X_DATALAB_API_KEY_REF="op://<vault>/<item>/credential"
+
+# --- x gdrive ---------------------------------------------------------------
+# 1Password vault with one item per rclone remote: title = remote name, fields
+# "client id", "client secret", "scope". Scaffold with `x gdrive client new`.
+# x vault always uses the remote "vault"; plain x gdrive uses X_GDRIVE_REMOTE
+# unless given -r <remote>.
+X_GDRIVE_OP_VAULT="x-gdrive"
+X_GDRIVE_REMOTE="drive"
+
+# --- x vault (and x kdf / x seal) -------------------------------------------
+# These are asked for on first use; defaults shown. The keys themselves live
+# in the 1Password vault named here, never in this file.
+X_VAULT_OP_VAULT="x-vault"
+X_VAULT_REMOTE_DIR="Vault"
+X_VAULT_STAGING="$HOME/.local/share/x/vault/staging"

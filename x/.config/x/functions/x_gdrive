@@ -1,0 +1,382 @@
+## Google Drive from the terminal: remotes from 1Password, up, down, ls, link (rclone)
+#@needs rclone jq op
+# Usage:
+#   x gdrive [-r remote] <command> …     every command takes -r (default X_GDRIVE_REMOTE)
+#
+#   x gdrive remotes                list the OAuth clients in 1Password and their state
+#   x gdrive client new <name> [--scope s] [--use-for text]
+#                                   scaffold a client item in 1Password to fill in
+#   x gdrive login                  create or update the remote from its 1Password
+#                                   item, then authorise in the browser
+#   x gdrive logout                 forget the remote and its token
+#   x gdrive status                 remote, scope and quota
+#   x gdrive ls [-R] [dir]          list a folder (-R: recursively)
+#   x gdrive up [-d dir] [--move] <local>…     upload files or folders
+#   x gdrive down [-C dir] <remote>…           download files or folders
+#   x gdrive rm <remote>…           delete (folders ask first; Drive keeps a trash)
+#   x gdrive mkdir <dir> | mv <from> <to> | du [dir]
+#   x gdrive link [--unlink] <remote>   anyone-with-the-link URL (copied)
+#
+# Plumbing for scripts (used by x vault):
+#   x gdrive cat <remote>           file contents to stdout
+#   x gdrive rcat <remote>          stdin to a file on Drive
+#   x gdrive sha256 <remote>        Drive's SHA-256 of a file
+#   x gdrive exists <remote>        status 0 if the path exists
+#   x gdrive lsjson [dir]           rclone's JSON listing of a folder
+#
+# Each rclone remote is described by one item in the 1Password vault
+# X_GDRIVE_OP_VAULT (default "x-gdrive"): title = remote name, fields
+# "client id", "client secret" and "scope" (drive.file, drive, drive.readonly,
+# drive.appfolder). Change them in 1Password and run `x gdrive -r <name> login`
+# to apply. Remote paths are relative to the Drive root ("Vault/index.age").
+# x vault always uses the remote named "vault".
+
+emulate -L zsh
+setopt extended_glob pipe_fail
+
+local usage="Usage: x gdrive [-r remote] remotes | client | login | logout | status | ls | up | down | rm | mkdir | mv | du | link"
+local -a xg_scopes=(drive.file drive drive.readonly drive.appfolder drive.metadata.readonly)
+
+local -a o_remote
+zparseopts -D -F -- r:=o_remote || return 1
+_x_ask_config X_GDRIVE_OP_VAULT "1Password vault for Google Drive OAuth clients" x-gdrive || return
+_x_ask_config X_GDRIVE_REMOTE "Default Google Drive remote for x gdrive" drive || return
+local xg_remote=${o_remote[2]:-$X_GDRIVE_REMOTE}
+
+_x_gdrive_remote_exists() {
+    rclone listremotes 2>/dev/null | grep -qxF "$xg_remote:"
+}
+
+# Every command but login needs a connected remote.
+_x_gdrive_ready() {
+    _x_gdrive_remote_exists && return 0
+    _x_err "Google Drive remote '$xg_remote' isn't connected. Run: x gdrive -r $xg_remote login"
+    return 1
+}
+
+# "Vault/a.age" -> "vault:Vault/a.age"
+_x_gdrive_path() { print -r -- "$xg_remote:${1#/}" }
+
+# rclone transfer flags: a live one-line progress on a terminal, quiet otherwise.
+_x_gdrive_progress() {
+    if _x_fancy && (( ! ${X_QUIET:-0} )); then
+        print -l -- --progress --stats-one-line --stats 500ms
+    else
+        print -- --quiet
+    fi
+}
+
+# The 1Password item for a remote as {client_id, client_secret, scope, use}.
+_x_gdrive_client() {
+    op item get "$1" --vault $X_GDRIVE_OP_VAULT --format json 2>/dev/null |
+        jq -c '[.fields[]? | {(.label): (.value // "")}] | add
+               | {client_id: (.["client id"] // ""), client_secret: (.["client secret"] // ""),
+                  scope: (.scope // ""), use: (.["used for"] // "")}'
+}
+
+# What rclone currently has for a remote, or nothing.
+_x_gdrive_rclone_conf() {
+    rclone config dump 2>/dev/null | jq -c --arg r "$1" '.[$r] // empty'
+}
+
+_x_gdrive_remotes() {
+    local items
+    items=$(_x_spin -t "Reading clients from 1Password" \
+        op item list --vault $X_GDRIVE_OP_VAULT --format json) || return
+    if [[ $(jq length <<<$items) == 0 ]]; then
+        _x_info "No clients yet. Scaffold one with: x gdrive client new <name>"
+        return 0
+    fi
+    local name client conf st
+    printf '%-10s %-16s %-30s %s\n' remote scope state "used for"
+    for name in ${(f)"$(jq -r '.[].title' <<<$items | sort)"}; do
+        client=$(_x_gdrive_client $name)
+        conf=$(_x_gdrive_rclone_conf $name)
+        if [[ -z $(jq -r .client_id <<<$client) || -z $(jq -r .client_secret <<<$client) ]]; then
+            st="fill in 1Password"
+        elif [[ -z $conf ]]; then
+            st="not logged in"
+        elif [[ $(jq -r '.client_id // ""' <<<$conf) != $(jq -r .client_id <<<$client) ||
+                $(jq -r '.scope // ""' <<<$conf) != $(jq -r .scope <<<$client) ]]; then
+            st="changed: run login"
+        else
+            st="connected"
+        fi
+        [[ $name == $X_GDRIVE_REMOTE ]] && st+=" (default)"
+        printf '%-10s %-16s %-30s %s\n' $name "$(jq -r .scope <<<$client)" $st "$(jq -r .use <<<$client)"
+    done
+}
+
+_x_gdrive_client_new() {
+    local -a o_scope o_use
+    zparseopts -D -E -F -- -scope:=o_scope -use-for:=o_use || return 1
+    local name=$1 scope=${o_scope[2]:-drive.file}
+    if [[ $name != [a-z][a-z0-9-]# ]]; then
+        print -u2 "Usage: x gdrive client new <name> [--scope ${(j:|:)xg_scopes}] [--use-for text]"
+        return 1
+    fi
+    if (( ! ${xg_scopes[(Ie)$scope]} )); then
+        _x_err "Unknown scope '$scope' (${(j:, :)xg_scopes})."
+        return 1
+    fi
+    if ! op vault get $X_GDRIVE_OP_VAULT >/dev/null 2>&1; then
+        _x_ask_yn "Create the 1Password vault '$X_GDRIVE_OP_VAULT' for Drive clients?" || {
+            _x_warn "Stopped; nothing was created."
+            return 1
+        }
+        _x_spin "Creating vault $X_GDRIVE_OP_VAULT" \
+            op vault create $X_GDRIVE_OP_VAULT --icon gears >/dev/null || return
+    fi
+    if op item get $name --vault $X_GDRIVE_OP_VAULT >/dev/null 2>&1; then
+        _x_err "'$name' already exists in $X_GDRIVE_OP_VAULT."
+        return 1
+    fi
+    jq -n --arg name $name --arg scope $scope --arg use "${o_use[2]:-}" '{
+        title: $name, category: "SECURE_NOTE",
+        fields: [
+          {id: "client_id", type: "STRING", label: "client id", value: ""},
+          {id: "client_secret", type: "CONCEALED", label: "client secret", value: ""},
+          {id: "scope", type: "STRING", label: "scope", value: $scope},
+          {id: "used_for", type: "STRING", label: "used for", value: $use},
+          {id: "notesPlain", type: "STRING", purpose: "NOTES", label: "notesPlain",
+           value: "rclone remote \"\($name)\" for x gdrive (x gdrive -r \($name) …).\n\nFill in a Google OAuth client of type Desktop app: console.cloud.google.com → Google Auth Platform → Clients. Its project needs the Google Drive API enabled, this scope listed under Data Access, and the app published (In production), or logins expire weekly.\n\nscope: drive.file (only files this client created), drive (everything), drive.readonly, drive.appfolder (hidden app folder).\n\nAfter changing anything here: x gdrive -r \($name) login"}
+        ]}' |
+        _x_spin "Creating client '$name' ($scope) in 1Password" \
+            op item create --vault $X_GDRIVE_OP_VAULT - >/dev/null || return
+    _x_info "Fill in its client id and secret in 1Password, then: x gdrive -r $name login"
+}
+
+_x_gdrive_login() {
+    local client conf id secret scope
+    client=$(_x_spin -t "Reading client '$xg_remote' from 1Password" _x_gdrive_client $xg_remote)
+    if [[ -z $client ]]; then
+        _x_err "No item '$xg_remote' in the 1Password vault $X_GDRIVE_OP_VAULT."
+        _x_info "Scaffold it with: x gdrive client new $xg_remote --scope drive.file"
+        return 1
+    fi
+    id=$(jq -r .client_id <<<$client)
+    secret=$(jq -r .client_secret <<<$client)
+    scope=$(jq -r .scope <<<$client)
+    if [[ -z $id || -z $secret ]]; then
+        _x_err "'$xg_remote' has no client id or secret yet; fill them in 1Password ($X_GDRIVE_OP_VAULT)."
+        return 1
+    fi
+    if (( ! ${xg_scopes[(Ie)$scope]} )); then
+        _x_err "'$xg_remote' has scope '$scope'; use one of ${(j:, :)xg_scopes}."
+        return 1
+    fi
+
+    # rclone keeps the client next to the token in rclone.conf. Google treats a
+    # Desktop-app client secret as not really secret; the token is what matters.
+    conf=$(_x_gdrive_rclone_conf $xg_remote)
+    _x_info "A browser window opens to sign in to Google."
+    if [[ -z $conf ]]; then
+        _x_step "Creating remote '$xg_remote' (scope $scope)"
+        rclone config create $xg_remote drive scope=$scope \
+            client_id=$id client_secret=$secret >/dev/null || {
+            _x_err "rclone couldn't create the remote."
+            return 1
+        }
+    else
+        if [[ $(jq -r '.client_id // ""' <<<$conf) != $id || $(jq -r '.scope // ""' <<<$conf) != $scope ]]; then
+            _x_step "Updating remote '$xg_remote' from 1Password (scope $scope)"
+            rclone config update $xg_remote scope=$scope client_id=$id client_secret=$secret \
+                --no-output --non-interactive >/dev/null || return
+        else
+            _x_step "Re-authorising remote '$xg_remote' (scope $scope)"
+        fi
+        rclone config reconnect "$xg_remote:" --auto-confirm || return
+    fi
+    _x_spin "Checking access" rclone lsf --max-depth 1 "$xg_remote:" >/dev/null || return
+    _x_ok "Google Drive connected as $xg_remote: (scope $scope)"
+}
+
+_x_gdrive_logout() {
+    _x_gdrive_ready || return
+    _x_ask_yn "Remove rclone remote '$xg_remote' and its token? (The 1Password item stays.)" || return 1
+    rclone config disconnect "$xg_remote:" >/dev/null 2>&1
+    rclone config delete "$xg_remote" && _x_ok "Logged out; remote '$xg_remote' removed."
+    _x_info "Also revoke access at https://myaccount.google.com/connections if you like."
+}
+
+_x_gdrive_status() {
+    _x_gdrive_ready || return
+    local about scope
+    scope=$(_x_gdrive_rclone_conf $xg_remote | jq -r '.scope // "drive"')
+    about=$(_x_spin -t "Asking Drive" rclone about --json "$xg_remote:") || return
+    _x_ok "Connected: $xg_remote: (scope $scope)"
+    local used total trashed
+    used=$(jq -r '.used // 0' <<<$about)
+    total=$(jq -r '.total // 0' <<<$about)
+    trashed=$(jq -r '.trashed // 0' <<<$about)
+    _x_info "used $(_x_bytes $used) of $(_x_bytes $total) ($(_x_bytes $trashed) in the trash)"
+}
+
+_x_gdrive_ls() {
+    local -a f_rec
+    zparseopts -D -E -F -- R=f_rec || return 1
+    _x_gdrive_ready || return
+    local dir=${1:-}
+    local -a depth=(--max-depth 1)
+    (( $#f_rec )) && depth=(--recursive)
+    local listing
+    listing=$(_x_spin -t "Listing ${dir:-/}" rclone lsjson $depth "$(_x_gdrive_path $dir)") || return
+    local isdir size mtime p
+    jq -r 'sort_by((.IsDir | not), .Path)[] | [.IsDir, .Size, (.ModTime | if endswith("Z") then (.[0:19] + "Z" | fromdate | strflocaltime("%Y-%m-%dT%H:%M")) else .[0:16] end), .Path] | @tsv' <<<$listing |
+    while IFS=$'\t' read -r isdir size mtime p; do
+        if [[ $isdir == true ]]; then
+            printf '%10s  %s  %s/\n' "-" "${mtime/T/ }" "$p"
+        else
+            printf '%10s  %s  %s\n' "$(_x_bytes $size)" "${mtime/T/ }" "$p"
+        fi
+    done
+}
+
+_x_gdrive_up() {
+    local -a o_dir f_move
+    zparseopts -D -E -F -- d:=o_dir -move=f_move || return 1
+    _x_gdrive_ready || return
+    if (( ! $# )); then
+        print -u2 "Usage: x gdrive up [-d remote-dir] [--move] <local>…"
+        return 1
+    fi
+    local dir=${o_dir[2]:-} src dest verb=copy failed=0 t0
+    (( $#f_move )) && verb=move
+    local -a progress=($(_x_gdrive_progress)) extra
+    local -i i=0
+    for src in "$@"; do
+        (( i++ ))
+        src=${src%/}
+        if [[ ! -e $src ]]; then
+            _x_err "No such file or folder: $src"
+            (( failed++ ))
+            continue
+        fi
+        dest=$(_x_gdrive_path ${dir:+$dir/}${src:t})
+        _x_step "[$i/$#] ${src:t} → $dest"
+        t0=$EPOCHREALTIME
+        if [[ -d $src ]]; then
+            extra=()
+            [[ $verb == move ]] && extra=(--delete-empty-src-dirs)
+            rclone $verb --checksum $progress $extra -- $src $dest
+        else
+            rclone ${verb}to --checksum $progress -- $src $dest
+        fi
+        if (( $? )); then
+            _x_err "Upload of ${src:t} failed."
+            (( failed++ ))
+        else
+            _x_ok "${src:t} uploaded in $(_x_elapsed $t0)${f_move:+ (local copy removed)}"
+        fi
+    done
+    return $(( failed > 0 ))
+}
+
+_x_gdrive_down() {
+    local -a o_dir
+    zparseopts -D -E -F -- C:=o_dir || return 1
+    _x_gdrive_ready || return
+    if (( ! $# )); then
+        print -u2 "Usage: x gdrive down [-C local-dir] <remote>…"
+        return 1
+    fi
+    local dir=${o_dir[2]:-.} src failed=0 is_dir t0
+    local -a progress=($(_x_gdrive_progress))
+    local -i i=0
+    for src in "$@"; do
+        (( i++ ))
+        src=${src%/}
+        _x_step "[$i/$#] $xg_remote:$src → ${dir/#$HOME/~}/${src:t}"
+        t0=$EPOCHREALTIME
+        is_dir=$(rclone lsjson --stat "$(_x_gdrive_path $src)" 2>/dev/null | jq -r .IsDir)
+        case $is_dir in
+            true)  rclone copy --checksum $progress -- "$(_x_gdrive_path $src)" "$dir/${src:t}" ;;
+            false) rclone copyto --checksum $progress -- "$(_x_gdrive_path $src)" "$dir/${src:t}" ;;
+            *)     _x_err "Not on Drive: $src"; (( failed++ )); continue ;;
+        esac
+        if (( $? )); then
+            _x_err "Download of ${src:t} failed."
+            (( failed++ ))
+        else
+            _x_ok "${src:t} downloaded in $(_x_elapsed $t0)"
+        fi
+    done
+    return $(( failed > 0 ))
+}
+
+_x_gdrive_rm() {
+    _x_gdrive_ready || return
+    local p is_dir
+    for p in "$@"; do
+        is_dir=$(rclone lsjson --stat "$(_x_gdrive_path $p)" 2>/dev/null | jq -r .IsDir)
+        case $is_dir in
+            true)
+                _x_ask_yn "Delete the folder $xg_remote:$p and everything in it?" || continue
+                _x_spin "Deleting $p/" rclone purge "$(_x_gdrive_path $p)" ;;
+            false)
+                _x_spin "Deleting $p" rclone deletefile "$(_x_gdrive_path $p)" ;;
+            *)  _x_err "Not on Drive: $p" ;;
+        esac
+    done
+}
+
+_x_gdrive_link() {
+    local -a f_unlink
+    zparseopts -D -E -F -- -unlink=f_unlink || return 1
+    _x_gdrive_ready || return
+    if (( $# != 1 )); then
+        print -u2 "Usage: x gdrive link [--unlink] <remote>"
+        return 1
+    fi
+    if (( $#f_unlink )); then
+        _x_spin "Removing the public link to $1" rclone link --unlink "$(_x_gdrive_path $1)" >/dev/null
+        return
+    fi
+    local url
+    url=$(_x_spin -t "Creating a link to $1" rclone link "$(_x_gdrive_path $1)") || return
+    print -r -- $url
+    if [[ -t 1 ]] && (( $+commands[pbcopy] )); then
+        print -rn -- $url | pbcopy
+        _x_ok "Anyone with the link can download ${1:t} (copied to the clipboard)."
+    fi
+}
+
+local cmd=${1:-}
+(( $# )) && shift
+case $cmd in
+    remotes) _x_gdrive_remotes "$@" ;;
+    client)
+        if [[ ${1:-} == new ]]; then
+            shift
+            _x_gdrive_client_new "$@"
+        else
+            print -u2 "Usage: x gdrive client new <name> [--scope s] [--use-for text]"
+            return 1
+        fi
+        ;;
+    login)  _x_gdrive_login "$@" ;;
+    logout) _x_gdrive_logout "$@" ;;
+    status) _x_gdrive_status "$@" ;;
+    ls)     _x_gdrive_ls "$@" ;;
+    up)     _x_gdrive_up "$@" ;;
+    down)   _x_gdrive_down "$@" ;;
+    rm)     _x_gdrive_rm "$@" ;;
+    link)   _x_gdrive_link "$@" ;;
+    mkdir)  _x_gdrive_ready && rclone mkdir "$(_x_gdrive_path $1)" ;;
+    mv)     _x_gdrive_ready && _x_spin "Moving $1 → $2" rclone moveto "$(_x_gdrive_path $1)" "$(_x_gdrive_path $2)" ;;
+    du)     _x_gdrive_ready && rclone size "$(_x_gdrive_path ${1:-})" ;;
+    cat)    _x_gdrive_ready && rclone cat "$(_x_gdrive_path $1)" ;;
+    rcat)   _x_gdrive_ready && rclone rcat "$(_x_gdrive_path $1)" ;;
+    sha256) _x_gdrive_ready && rclone hashsum sha256 "$(_x_gdrive_path $1)" | cut -d' ' -f1 ;;
+    exists) _x_gdrive_ready && rclone lsjson --stat "$(_x_gdrive_path $1)" >/dev/null 2>&1 ;;
+    lsjson) _x_gdrive_ready && rclone lsjson "$(_x_gdrive_path ${1:-})" ;;
+    ""|-h|--help|help)
+        sed -n '/^# Usage:/,/^$/s/^# \{0,1\}//p' $X_FUNCTIONS_DIR/x_gdrive
+        [[ -n $cmd ]] || return 1
+        ;;
+    *)
+        _x_err "Unknown subcommand '$cmd'."
+        print -u2 $usage
+        return 1
+        ;;
+esac

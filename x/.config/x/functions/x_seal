@@ -1,0 +1,172 @@
+## encrypt a file or folder into one opaque .age archive (tar, zstd, padding, age)
+#@needs age age-plugin-batchpass zstd uv op jq
+#@needs-optional pv
+# Usage:
+#   x seal [-k keyid] [--name N] [-o out] [options] <path>   vault key (derived)
+#   x seal --random [-o out] [options] <path>                fresh key, printed
+#   x seal -p - [-o out] [options] <path>                    passphrase on stdin
+#
+# Options:
+#   -k keyid    master key to derive from (default: the vault's current key)
+#   --name N    archive name to derive under (default: <keyid>.<random>)
+#   -o out      output file, or - for stdout (default: ./<name>.age)
+#   -L level    zstd level (default 9; 19 is ~10x slower for a few % less)
+#   -z gzip     gzip instead of zstd, for readers without zstd (stock macOS
+#               tar can't read zstd); no padding then (default for --random)
+#   --no-pad    skip Padmé padding (the exact compressed size shows)
+#   --portable  leave out macOS metadata and xattrs (for non-Mac readers)
+#   --meta F    write a JSON record of hashes and sizes to F
+#   -q          no progress output
+#
+# Pipeline: tar | zstd | pad | age -e (scrypt passphrase, via batchpass).
+# The JSON record (--meta) has sha256 and length of the tar stream, of the
+# padded inner stream and of the .age file itself (to compare with Drive's).
+# With a vault key the passphrase is `x kdf <keyid> <name>`, so the archive's
+# name (the file name without .age) is part of its key: keep names as they
+# are, or pass the original with --name to x unseal. Stock tools decrypt it:
+#   age -d f.age | zstd -d | tar x      (age prompts for the passphrase)
+# The passphrase reaches age through a pipe fd, never argv or the environment.
+
+emulate -L zsh
+setopt extended_glob pipe_fail
+
+local -a o_key o_name o_out o_level o_pass o_meta o_comp
+local -a f_random f_nopad f_portable f_quiet
+zparseopts -D -E -F -- k:=o_key -name:=o_name o:=o_out L:=o_level p:=o_pass \
+    -meta:=o_meta z:=o_comp -random=f_random -no-pad=f_nopad -portable=f_portable \
+    q=f_quiet || return 1
+(( $#f_quiet )) && local X_QUIET=1
+
+if (( $# != 1 )); then
+    print -u2 "Usage: x seal [-k keyid] [--name N] [-o out] [-L level] [-z gzip] [--no-pad] [--portable] [--meta F] [-q] <path>"
+    print -u2 "       x seal --random [-o out] … <path>     fresh random key, printed"
+    print -u2 "       x seal -p - [-o out] … <path>         passphrase on stdin"
+    return 1
+fi
+local src=${1%/}
+if [[ ! -e $src ]]; then
+    _x_err "No such file or folder: $src"
+    return 1
+fi
+src=${src:a}
+
+# 26 base32 characters = 130 random bits; rejection sampling keeps it uniform.
+_x_seal_rand() { LC_ALL=C tr -dc 'a-z2-7' </dev/urandom | head -c $1 }
+
+local id="" name pass mode
+if (( $#f_random )); then
+    mode=random
+    pass=$(head -c 32 /dev/urandom | base64 | tr '+/' '-_' | tr -d '=\n')
+    name=${o_name[2]:-share-$(_x_seal_rand 16)}
+    f_portable=(--portable)
+    (( $#o_comp )) || o_comp=(-z gzip)
+elif [[ ${o_pass[2]} == - ]]; then
+    mode=given
+    IFS= read -r pass
+    name=${o_name[2]:-$(_x_seal_rand 26)}
+else
+    mode=vault
+    id=${o_key[2]}
+    if [[ -z $id ]]; then
+        _x_ask_config X_VAULT_OP_VAULT "1Password vault for the vault keys" x-vault || return
+        id=$(_x_spin "Looking up the current vault key" \
+            op read --no-newline "op://$X_VAULT_OP_VAULT/settings/current") || return 1
+    fi
+    name=${o_name[2]:-$id.$(_x_seal_rand 26)}
+    if [[ $name != $id.* ]]; then
+        _x_err "Archive name '$name' must start with its key id '$id.'"
+        return 1
+    fi
+    pass=$(x_kdf "$id" "$name") || return 1
+fi
+if [[ -z $pass ]]; then
+    _x_err "Empty passphrase."
+    return 1
+fi
+
+local out=${o_out[2]:-./$name.age}
+if [[ $out != - && -e $out ]]; then
+    _x_err "Refusing to overwrite $out"
+    return 1
+fi
+
+local -a compress
+case ${o_comp[2]:-zstd} in
+    zstd) compress=(zstd -q -T0 -${o_level[2]:-9} --long=27 -c) ;;
+    gzip) compress=(gzip -${o_level[2]:-6} -c); f_nopad=(--no-pad) ;;
+    *)    _x_err "Unknown compression '${o_comp[2]}' (zstd or gzip)."; return 1 ;;
+esac
+
+local -a tar_opts=(-c -f - -C ${src:h})
+(( $#f_portable )) && tar_opts+=(--no-mac-metadata --no-xattrs)
+
+local estimate
+if [[ -d $src ]]; then
+    estimate=$(_x_spin -t "Measuring ${src:t}" du -sk $src | cut -f1) || return 1
+    (( estimate *= 1024 ))
+else
+    estimate=$(stat -f %z $src)
+fi
+
+local tmp pfd rc=0
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/xseal.XXXXXX") || return 1
+local xstream=(uv run --quiet --no-project python -I $X_DIR/lib/xstream.py)
+local partial=$out.partial
+[[ $out == - ]] && partial=/dev/stdout
+
+_x_step "Sealing ${src:t} ($(_x_bytes $estimate)) → ${out:t}"
+local t0=$EPOCHREALTIME
+{
+    exec {pfd}< <(print -r -- $pass)
+    COPYFILE_DISABLE=1 tar $tar_opts -- ${src:t} |
+        $xstream hash --meta $tmp/tar.json |
+        _x_pv -s $estimate -N ${src:t} |
+        $compress |
+        $xstream pad --meta $tmp/inner.json ${f_nopad:+--no-pad} |
+        AGE_PASSPHRASE_FD=$pfd age -e -j batchpass |
+        $xstream hash --meta $tmp/age.json > $partial || rc=$?
+} always {
+    (( pfd )) && exec {pfd}<&-
+    if (( rc )); then
+        [[ $out != - ]] && rm -f -- $partial
+        rm -rf -- $tmp
+    fi
+}
+if (( rc )); then
+    _x_err "Sealing ${src:t} failed."
+    return rc
+fi
+[[ $out != - ]] && mv -- $partial $out
+
+local kind=file
+[[ -d $src ]] && kind=dir
+local meta
+meta=$(jq -cn --arg name $name --arg key "$id" --arg mode $mode --arg path $src \
+    --arg kind $kind \
+    --slurpfile tar $tmp/tar.json --slurpfile inner $tmp/inner.json \
+    --slurpfile age $tmp/age.json --arg compression ${o_comp[2]:-zstd} \
+    --argjson padded ${${f_nopad:+false}:-true} \
+    --arg created $(date -u +%Y-%m-%dT%H:%M:%SZ) --arg host ${HOST%%.*} \
+    '{name: $name, key: (if $key == "" then null else $key end), mode: $mode,
+      path: $path, kind: $kind, created: $created, host: $host,
+      compression: $compression, padded: $padded,
+      tar: $tar[0], inner: $inner[0], age: $age[0], size: $age[0].bytes}')
+rm -rf -- $tmp
+[[ -n ${o_meta[2]} ]] && print -r -- $meta > ${o_meta[2]}
+
+local tar_bytes=$(jq -r .tar.bytes <<<$meta) inner_bytes=$(jq -r .inner.bytes <<<$meta)
+local payload=$(jq -r .inner.payload <<<$meta)
+local sizes="content $(_x_bytes $tar_bytes) → compressed $(_x_bytes $payload)"
+(( $#f_nopad )) || sizes+=" → padded $(_x_bytes $inner_bytes)"
+sizes+=" → archive $(_x_bytes $(jq -r .size <<<$meta))"
+_x_ok "Sealed ${src:t} in $(_x_elapsed $t0)"
+_x_info $sizes
+[[ $out != - ]] && _x_info "archive  ${out/#$HOME/~}"
+[[ -n $id ]] && _x_info "key      $id (derived for $name)"
+
+if [[ $mode == random ]]; then
+    _x_warn "Random passphrase, stored nowhere. Copy it now:"
+    print -r -- $pass
+elif [[ $out != - ]]; then
+    print -r -- $out
+fi

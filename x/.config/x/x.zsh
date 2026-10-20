@@ -122,6 +122,165 @@ _x_need_config() {
     return 1
 }
 
+# Like _x_need_config for a single setting, but asks for a missing value on
+# the terminal (offering a default) and remembers it in config.zsh.
+#   _x_ask_config X_FOO_DIR "Folder for foo" ~/foo || return
+_x_ask_config() {
+    local var=$1 question=$2 default=$3 value
+    [[ -n ${(P)var} && ${(P)var} != *'<'*'>'* ]] && return 0
+    if ! _x_ask "value" "❓ $question${default:+ [$default]}: "; then
+        # No terminal and nothing on stdin: take the default if there is one.
+        if [[ -z $default ]]; then
+            _x_need_config $var
+            return
+        fi
+        value=$default
+        _x_info "No answer possible here; using the default."
+    fi
+    value=${value:-$default}
+    if [[ -z $value ]]; then
+        _x_err "No value given for $var."
+        return 1
+    fi
+    typeset -g $var=$value
+    print -r -- "$var=${(qq)value}" >> $X_DIR/config.zsh
+    _x_info "Saved $var in ${X_DIR/#$HOME/~}/config.zsh"
+}
+
+# ============================================================================
+# output helpers: status lines, spinners and progress bars
+# ============================================================================
+# Status goes to stderr so stdout stays clean for data (paths, keys, JSON).
+# Colour and animation only on a terminal; NO_COLOR disables colour and
+# X_QUIET=1 (commands map -q to it) silences spinners, progress bars and
+# step/info/ok lines; warnings and errors always show.
+
+_x_fancy() { [[ -t 2 && -z ${NO_COLOR-} ]] }
+
+# _x_say <sgr> <icon> <message…>: one status line, icon coloured by <sgr>.
+_x_say() {
+    local sgr=$1 icon=$2; shift 2
+    if _x_fancy; then
+        print -u2 -r -- $'\e['"${sgr}m${icon}"$'\e[0m'" $*"
+    else
+        print -u2 -r -- "$icon $*"
+    fi
+}
+_x_step() { (( ${X_QUIET:-0} )) && return; _x_fancy && print -u2 -r -- $'\e[1;34m▸ \e[0;1m'"$*"$'\e[0m' || print -u2 -r -- "▸ $*" }
+_x_info() { (( ${X_QUIET:-0} )) && return; _x_fancy && print -u2 -r -- $'\e[2m  '"$*"$'\e[0m' || print -u2 -r -- "  $*" }
+_x_ok()   { (( ${X_QUIET:-0} )) || _x_say 32 ✅ "$@" }
+_x_warn() { _x_say 33 ⚠️ "$@" }
+_x_err()  { _x_say 31 ❌ "$@" }
+
+# Seconds since $1 (an $EPOCHREALTIME), formatted 4.2s / 3:07 / 1:02:03.
+_x_elapsed() {
+    zmodload zsh/datetime
+    local -i s=$(( EPOCHREALTIME - $1 ))
+    if (( s < 60 )); then
+        printf '%.1fs' $(( EPOCHREALTIME - $1 ))
+    elif (( s < 3600 )); then
+        printf '%d:%02d' $(( s / 60 )) $(( s % 60 ))
+    else
+        printf '%d:%02d:%02d' $(( s / 3600 )) $(( s / 60 % 60 )) $(( s % 60 ))
+    fi
+}
+
+# _x_spin [-t] <label> <cmd…>: run cmd with a spinner and elapsed time beside
+# the label, then leave a single ✅/❌ line (-t: no line on success). cmd's
+# stdout passes through untouched (so `key=$(_x_spin "Reading key" op read …)`
+# works); its exit status is kept.
+_x_spin() {
+    emulate -L zsh
+    setopt no_monitor no_notify
+    zmodload zsh/datetime zsh/zselect
+    local transient=0
+    [[ $1 == -t ]] && { transient=1; shift }
+    local label=$1; shift
+    local t0=$EPOCHREALTIME rc=0
+    if ! _x_fancy || (( ${X_QUIET:-0} )); then
+        "$@" || rc=$?
+        if (( rc )); then
+            _x_err "$label failed"
+        elif (( ! transient && ! ${X_QUIET:-0} )); then
+            _x_ok "$label ($(_x_elapsed $t0))"
+        fi
+        return rc
+    fi
+    {
+        local frames='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏' i=0
+        while :; do
+            printf '\r\e[K\e[36m%s\e[0m %s \e[2m%s\e[0m' \
+                "${frames[i % 10 + 1]}" "$label" "$(_x_elapsed $t0)" >&2
+            (( i++ ))
+            zselect -t 10
+        done
+    } &!
+    local spinner=$!
+    {
+        "$@" || rc=$?
+    } always {
+        kill $spinner 2>/dev/null
+        printf '\r\e[K' >&2
+    }
+    if (( rc )); then
+        _x_err "$label failed ($(_x_elapsed $t0))"
+    elif (( ! transient )); then
+        _x_ok "$label $(_x_fancy && print -n $'\e[2m')($(_x_elapsed $t0))$(_x_fancy && print -n $'\e[0m')"
+    fi
+    return rc
+}
+
+# _x_pv [-s bytes] [-N label]: progress bar for a byte stream in a pipeline,
+# or a plain pass-through when quiet, not on a terminal, or pv is missing.
+#   tar -cf - dir | _x_pv -s $bytes -N "dir" | zstd …
+_x_pv() {
+    local -a size name
+    zparseopts -D -E -- s:=size N:=name
+    if ! _x_fancy || (( ${X_QUIET:-0} )) || (( ! $+commands[pv] )); then
+        cat
+        return
+    fi
+    local -a opts=(--progress --bytes --rate --timer --eta --width 80 --bar-style granular)
+    [[ -n ${size[2]} ]] && (( size[2] > 0 )) && opts+=(--size ${size[2]})
+    [[ -n ${name[2]} ]] && opts+=(--name "${name[2]}")
+    pv "${opts[@]}"
+}
+
+# _x_ask <var> <prompt> [-s]: read a line from the terminal (stdin when there
+# is no terminal) into <var>; -s hides the input.
+_x_ask() {
+    local -a silent
+    [[ $3 == -s ]] && silent=(-s)
+    if { : </dev/tty } 2>/dev/null; then
+        read -r $silent "$1?$2" </dev/tty || return
+        if (( $#silent )); then
+            print -u2
+        fi
+    else
+        print -u2 -n -- "$2"
+        read -r $silent "$1" || return
+        print -u2
+    fi
+}
+
+# _x_ask_yn <question>: y/N; succeeds only on an explicit y.
+_x_ask_yn() {
+    local reply
+    _x_ask reply "❓ $1 [y/N] " || return 1
+    [[ $reply == [yY]* ]]
+}
+
+# _x_bytes <n>: human-readable size (1.2 GiB).
+_x_bytes() {
+    local -F n=$1
+    local -a units=(B KiB MiB GiB TiB PiB)
+    local i=1
+    while (( n >= 1024 && i < ${#units} )); do
+        (( n /= 1024, i++ ))
+    done
+    (( i == 1 )) && printf '%d B' $n || printf '%.1f %s' $n ${units[i]}
+}
+
 # ============================================================================
 # completion for `x <subcommand> [args...]`
 # ============================================================================
@@ -145,7 +304,7 @@ _x() {
 
     # Fallback: complete file paths for commands that take one.
     case "${words[2]}" in
-        extrct|ocr|copypath|undmg) _files ;;
+        extrct|ocr|copypath|undmg|seal|unseal) _files ;;
         *) ;;
     esac
 }

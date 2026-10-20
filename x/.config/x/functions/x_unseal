@@ -1,0 +1,146 @@
+## decrypt an archive made by x seal (extract, stream, or just verify)
+#@needs age age-plugin-batchpass zstd uv op
+#@needs-optional pv
+# Usage:
+#   x unseal [key] [-C dir] [-q] <file.age | ->     extract into dir (default .)
+#   x unseal [key] -O <file.age | ->                tar stream to stdout
+#   x unseal [key] --check [sha256] <file.age | ->  decrypt and hash, no output
+#
+# Key (one of):
+#   (default)   derive from the archive name: <keyid>.<…>.age -> x kdf
+#   --name N    derive from N instead (an archive renamed after sealing)
+#   -p -        passphrase on stdin (only when the archive is a file)
+#   -P          prompt for the passphrase on the terminal
+#
+# -z gzip reads a gzip archive (x seal -z gzip / --random); zstd is the default.
+#
+# Extraction goes into a fresh folder next to the destination first, then
+# moves into place; nothing existing is overwritten. bsdtar already refuses
+# absolute paths and `..` entries.
+
+emulate -L zsh
+setopt extended_glob pipe_fail
+
+local -a o_dir o_name o_pass o_size o_comp f_stdout f_check f_prompt f_quiet
+zparseopts -D -E -F -- C:=o_dir -name:=o_name p:=o_pass P=f_prompt O=f_stdout \
+    -check=f_check -size:=o_size z:=o_comp q=f_quiet || return 1
+(( $#f_quiet )) && local X_QUIET=1
+
+local expect=""
+if (( $#f_check && $# == 2 )); then
+    expect=$1; shift
+fi
+if (( $# != 1 )); then
+    print -u2 "Usage: x unseal [--name N | -p - | -P] [-C dir] [-q] <file.age | ->"
+    print -u2 "       x unseal … -O <file.age | ->               tar stream to stdout"
+    print -u2 "       x unseal … --check [sha256] <file.age | -> verify only"
+    return 1
+fi
+local src=$1
+if [[ $src != - && ! -f $src ]]; then
+    _x_err "No such archive: $src"
+    return 1
+fi
+
+local pass name=${o_name[2]:-${${src:t}%.age}}
+if [[ ${o_pass[2]} == - ]]; then
+    if [[ $src == - ]]; then
+        _x_err "-p - needs the archive as a file, stdin is taken."
+        return 1
+    fi
+    IFS= read -r pass
+elif (( $#f_prompt )); then
+    _x_ask pass "🔑 Passphrase for ${src:t}: " -s || return 1
+else
+    if [[ $src == - && -z ${o_name[2]} ]]; then
+        _x_err "Reading stdin: pass --name, -p - or -P so the key can be found."
+        return 1
+    fi
+    local id=${name%%.*}
+    if [[ $id != [a-z2-7](#c6) || $name != $id.* ]]; then
+        _x_err "'$name' isn't a vault archive name (<keyid>.<…>); use -P or -p -."
+        return 1
+    fi
+    pass=$(x_kdf "$id" "$name") || return 1
+fi
+if [[ -z $pass ]]; then
+    _x_err "Empty passphrase."
+    return 1
+fi
+
+local size=${o_size[2]}
+[[ -z $size && $src != - ]] && size=$(stat -f %z $src)
+local label=${${src:t}:-archive}
+[[ $src == - ]] && label=$name
+
+local -a decompress
+case ${o_comp[2]:-zstd} in
+    zstd) decompress=(zstd -q -d --long=27 -c) ;;
+    gzip) decompress=(gzip -d -c) ;;
+    *)    _x_err "Unknown compression '${o_comp[2]}' (zstd or gzip)."; return 1 ;;
+esac
+
+local xstream=(uv run --quiet --no-project python -I $X_DIR/lib/xstream.py)
+local pfd rc=0 t0=$EPOCHREALTIME
+_x_decrypt() {
+    exec {pfd}< <(print -r -- $pass)
+    { [[ $src == - ]] && cat || cat -- $src } |
+        _x_pv -s "$size" -N $label |
+        AGE_PASSPHRASE_FD=$pfd age -d -j batchpass |
+        $decompress
+}
+
+if (( $#f_check )); then
+    _x_step "Verifying $label"
+    {
+        _x_decrypt | $xstream hash --sink ${expect:+--expect} $expect --meta /dev/stdout || rc=$?
+    } always { (( pfd )) && exec {pfd}<&- }
+    if (( rc )); then
+        _x_err "$label did not verify."
+        return rc
+    fi
+    _x_ok "$label verified in $(_x_elapsed $t0)${expect:+ (content sha256 matches)}"
+    return 0
+fi
+
+if (( $#f_stdout )); then
+    { _x_decrypt || rc=$? } always { (( pfd )) && exec {pfd}<&- }
+    return rc
+fi
+
+local dest=${o_dir[2]:-.}
+if [[ ! -d $dest ]]; then
+    _x_err "No such folder: $dest"
+    return 1
+fi
+local stage
+stage=$(mktemp -d "$dest/.unseal.XXXXXX") || return 1
+_x_step "Unsealing $label → ${dest/#$HOME/~}"
+{
+    _x_decrypt | tar -x -f - -C $stage || rc=$?
+} always {
+    (( pfd )) && exec {pfd}<&-
+    (( rc )) && rm -rf -- $stage
+}
+if (( rc )); then
+    _x_err "Unsealing $label failed; nothing was extracted."
+    return rc
+fi
+
+local entry clash=0
+for entry in $stage/*(DN); do
+    [[ -e $dest/${entry:t} || -L $dest/${entry:t} ]] && clash=1
+done
+if (( clash )); then
+    local keep=$dest/${name}.unsealed
+    mv -- $stage $keep
+    _x_warn "Something with the same name exists in ${dest/#$HOME/~}; extracted into ${keep/#$HOME/~} instead."
+    print -r -- $keep
+    return 0
+fi
+for entry in $stage/*(DN); do
+    mv -- $entry $dest/
+    print -r -- $dest/${entry:t}
+done
+rmdir -- $stage
+_x_ok "Unsealed $label in $(_x_elapsed $t0)"

@@ -1,0 +1,760 @@
+## encrypted backups on Google Drive: put, push, ls, get, rekey, share
+#@needs op rclone age age-plugin-batchpass zstd uv jq git
+#@needs-optional pv fzf
+# Usage:
+#   x vault init                         settings, 1Password vault, first key
+#   x vault put [--direct] <path>…       seal into staging (--direct: straight to Drive)
+#   x vault push                         upload staged archives, offer to delete originals
+#   x vault ls [-l] [pattern]            archives by original path (-l: with names)
+#   x vault get [-C dir] <archive|path>  download and extract
+#   x vault key <archive|path>           print one archive's passphrase
+#   x vault keys                         list master keys with status and usage
+#   x vault keys new [--use] | use <id> | retire <id> [--compromised]
+#   x vault rekey [selectors] [--to id] [-n] [-i]
+#                                        re-encrypt archives, Drive to Drive
+#   x vault rm [-n] <archive|path|pattern>…
+#                                        delete archives from Drive and the index
+#   x vault check                        compare the index with Drive
+#   x vault share [--to DIR] <path>      one-off encrypted share + message for a friend
+#
+# Rekey selectors (combined with AND): --from <id>, --status retired|compromised,
+# --match <glob on path>, --before <YYYY-MM-DD>, --larger/--smaller <size, e.g. 2G>,
+# explicit archive names or paths, or --all.
+#
+# Keys live in their own 1Password vault (X_VAULT_OP_VAULT): one item per
+# master key (title = key id; fields key, created, status) and an item
+# "settings" whose field "current" names the key for new archives. Archives
+# are <keyid>.<random>.age in X_VAULT_REMOTE_DIR on the x gdrive remote
+# "vault" (its own OAuth client, scope drive.file), plus
+# an encrypted index <keyid>.index.age mapping them to original paths. See
+# the x README for the cryptography and for recovery with stock tools.
+
+emulate -L zsh
+setopt extended_glob pipe_fail
+
+local usage="Usage: x vault init | put | push | ls | get | key | keys | rekey | rm | check | share"
+local state=${XDG_STATE_HOME:-$HOME/.local/state}/x/vault
+local index=$state/index.jsonl
+local xstream=(uv run --quiet --no-project python -I $X_DIR/lib/xstream.py)
+local xv_remote_index="" xv_remote_mtime="" xv_current=""
+local R S
+
+# --- setup -------------------------------------------------------------------
+
+_xv_config() {
+    _x_ask_config X_VAULT_OP_VAULT "1Password vault for the vault keys" x-vault || return
+    _x_ask_config X_VAULT_REMOTE_DIR "Google Drive folder for the archives" Vault || return
+    _x_ask_config X_VAULT_STAGING "Local staging folder (outside any synced folder)" \
+        "$HOME/.local/share/x/vault/staging" || return
+    R=$X_VAULT_REMOTE_DIR
+    S=${X_VAULT_STAGING/#\~/$HOME}
+    mkdir -p $S $state/refs
+}
+
+_xv_rand() { LC_ALL=C tr -dc 'a-z2-7' </dev/urandom | head -c $1 }
+
+# The vault always talks to Drive through its own remote and OAuth client
+# (1Password item "vault" in X_GDRIVE_OP_VAULT), whatever x gdrive's default.
+local xv_remote=vault
+_xv_gdrive() { x_gdrive -r $xv_remote "$@" }
+
+_xv_current() {
+    [[ -n $xv_current ]] && { print -r -- $xv_current; return }
+    xv_current=$(_x_spin -t "Reading the current key" \
+        op read --no-newline "op://$X_VAULT_OP_VAULT/settings/current") || return 1
+    print -r -- $xv_current
+}
+
+# All master keys as JSON lines {id, status, created}; never the key itself.
+_xv_keys_json() {
+    local items
+    items=$(op item list --vault $X_VAULT_OP_VAULT --format json) || return
+    [[ $(jq length <<<$items) == 0 ]] && return 0   # `op item get -` chokes on none
+    # A pipe, not <<<: op only reads item lists from a pipe.
+    print -r -- $items | op item get - --vault $X_VAULT_OP_VAULT --format json |
+        jq -c 'select(.title | test("^[a-z2-7]{6}$"))
+               | {id: .title,
+                  status: ([.fields[]? | select(.label == "status") | .value][0] // "active"),
+                  created: ([.fields[]? | select(.label == "created") | .value][0] // "")}'
+}
+
+_xv_init() {
+    _xv_config || return
+    _x_step "1Password vault '$X_VAULT_OP_VAULT'"
+    if op vault get $X_VAULT_OP_VAULT >/dev/null 2>&1; then
+        _x_ok "exists"
+    else
+        _x_ask_yn "Create the 1Password vault '$X_VAULT_OP_VAULT' for the keys?" || {
+            _x_warn "Stopped; nothing was created."
+            return 1
+        }
+        _x_spin "Creating vault $X_VAULT_OP_VAULT" \
+            op vault create $X_VAULT_OP_VAULT --icon vault-door >/dev/null || return
+    fi
+    if op item get settings --vault $X_VAULT_OP_VAULT >/dev/null 2>&1; then
+        _x_ok "Current key: $(_xv_current)"
+    else
+        _xv_key_new --use || return
+    fi
+
+    _x_step "Google Drive folder '$R'"
+    if ! _xv_gdrive exists "" 2>/dev/null; then
+        _x_warn "The vault's Drive remote isn't connected. Run: x gdrive -r $xv_remote login, then x vault init again."
+        return 1
+    fi
+    _xv_gdrive exists $R || _x_spin "Creating $R on Drive" _xv_gdrive mkdir $R || return
+    _x_ok "Ready. Staging folder: ${S/#$HOME/~}"
+}
+
+# --- keys ----------------------------------------------------------------------
+
+_xv_key_new() {
+    local -a f_use
+    zparseopts -D -E -F -- -use=f_use || return 1
+    local existing id
+    existing=$(_x_spin -t "Listing keys" _xv_keys_json) || return
+    repeat 10; do
+        id=$(_xv_rand 6)
+        grep -q "\"$id\"" <<<$existing || break
+    done
+    # The key goes to op inside a JSON template on stdin, never on argv.
+    head -c 32 /dev/urandom | base64 | tr '+/' '-_' | tr -d '=\n' |
+        jq -Rn --arg id $id --arg created $(date +%Y-%m-%d) '{
+            title: $id, category: "SECURE_NOTE",
+            fields: [
+              {id: "key", type: "CONCEALED", label: "key", value: input},
+              {id: "created", type: "STRING", label: "created", value: $created},
+              {id: "status", type: "STRING", label: "status", value: "active"},
+              {id: "notesPlain", type: "STRING", purpose: "NOTES", label: "notesPlain",
+               value: "x vault master key. Archives named \($id).*.age on Google Drive derive their passphrases from it (x kdf). Without it they cannot be decrypted."}
+            ]}' |
+        _x_spin "Creating key $id in 1Password" \
+            op item create --vault $X_VAULT_OP_VAULT - >/dev/null || return
+    if (( $#f_use )); then
+        _xv_key_use $id || return
+    else
+        _x_info "Make it current with: x vault keys use $id"
+    fi
+}
+
+_xv_key_use() {
+    local id=$1
+    if [[ $id != [a-z2-7](#c6) ]] || ! op item get $id --vault $X_VAULT_OP_VAULT >/dev/null 2>&1; then
+        _x_err "No key '$id' in $X_VAULT_OP_VAULT."
+        return 1
+    fi
+    if op item get settings --vault $X_VAULT_OP_VAULT >/dev/null 2>&1; then
+        _x_spin "Making $id the current key" \
+            op item edit settings --vault $X_VAULT_OP_VAULT "current[text]=$id" >/dev/null || return
+    else
+        _x_spin "Making $id the current key" \
+            op item create --vault $X_VAULT_OP_VAULT --category "Secure Note" --title settings \
+                "current[text]=$id" >/dev/null || return
+    fi
+    xv_current=$id
+}
+
+_xv_key_retire() {
+    local -a f_comp
+    zparseopts -D -E -F -- -compromised=f_comp || return 1
+    local id=$1 st=retired
+    (( $#f_comp )) && st=compromised
+    if [[ $id == $(_xv_current) ]]; then
+        _x_err "$id is the current key; make another one current first (x vault keys new --use)."
+        return 1
+    fi
+    _x_spin "Marking $id $st" \
+        op item edit $id --vault $X_VAULT_OP_VAULT "status[text]=$st" >/dev/null || return
+    _xv_pull || return
+    local -i n=$(jq -s --arg id $id 'map(select(.key == $id)) | length' $index)
+    if (( n )); then
+        _x_info "$n archive(s) still use it. Move them with: x vault rekey --from $id"
+    fi
+}
+
+_xv_keys() {
+    local cmd=${1:-}
+    (( $# )) && shift
+    case $cmd in
+        new)    _xv_key_new "$@"; return ;;
+        use)    _xv_key_use "$@"; return ;;
+        retire) _xv_key_retire "$@"; return ;;
+        "")     ;;
+        *)      _x_err "Unknown: x vault keys $cmd (new | use | retire)"; return 1 ;;
+    esac
+    local keys current
+    keys=$(_x_spin -t "Reading keys from 1Password" _xv_keys_json) || return
+    current=$(_xv_current) || return
+    _xv_pull || return
+    local id st created count bytes mark
+    printf '%-8s %-12s %-11s %9s %11s\n' key status created archives size
+    jq -r '[.id, .status, .created] | @tsv' <<<$keys | sort -k3 |
+    while IFS=$'\t' read -r id st created; do
+        IFS=$'\t' read -r count bytes < <(jq -rs --arg id $id \
+            'map(select(.key == $id)) | "\(length)\t\(map(.size) | add // 0)"' $index)
+        mark=""
+        [[ $id == $current ]] && mark="← current"
+        printf '%-8s %-12s %-11s %9s %11s %s\n' $id $st $created $count "$(_x_bytes $bytes)" $mark
+    done
+}
+
+# --- index -------------------------------------------------------------------
+# The index is one JSON line per archive (x seal's --meta record) and lives on
+# Drive as <keyid>.index.age, sealed like any archive. Commands fetch it fresh
+# and refuse to write if another machine replaced it in the meantime.
+
+_xv_remote_index_info() {
+    _xv_gdrive lsjson $R | jq -r '[.[] | select(.Name | test("^[a-z2-7]{6}\\.index\\.age$"))]
+        | sort_by(.ModTime) | last | select(.) | "\(.Name)\t\(.ModTime)"'
+}
+
+_xv_pull() {
+    local info
+    info=$(_x_spin -t "Fetching the index" _xv_remote_index_info) || return
+    xv_remote_index=${info%%$'\t'*}
+    xv_remote_mtime=${info#*$'\t'}
+    if [[ -z $xv_remote_index ]]; then
+        : > $index
+        return 0
+    fi
+    { _xv_gdrive cat $R/$xv_remote_index |
+        X_QUIET=1 x_unseal -q --name ${xv_remote_index%.age} -O - |
+        tar -xOf - index.jsonl > $index.new } && mv $index.new $index || {
+        rm -f $index.new
+        _x_err "Couldn't read the index $R/$xv_remote_index."
+        return 1
+    }
+}
+
+_xv_save_index() {
+    local info id tmp rc=0
+    info=$(_xv_remote_index_info) || return
+    local seen=""
+    [[ -n $xv_remote_index ]] && seen=$xv_remote_index$'\t'$xv_remote_mtime
+    if [[ $info != $seen ]]; then
+        _x_err "The index on Drive changed while this ran (another machine?). Run the command again."
+        return 1
+    fi
+    id=$(_xv_current) || return
+    tmp=$(mktemp -d "${TMPDIR:-/tmp}/xvault.XXXXXX") || return
+    {
+        cp $index $tmp/index.jsonl
+        X_QUIET=1 x_seal -q -k $id --name $id.index --meta $tmp/meta.json \
+            -o $tmp/$id.index.age $tmp/index.jsonl >/dev/null &&
+        _xv_gdrive rcat $R/$id.index.age < $tmp/$id.index.age &&
+        [[ $(_xv_gdrive sha256 $R/$id.index.age) == $(jq -r .age.sha256 $tmp/meta.json) ]] || rc=1
+    } always { rm -rf -- $tmp }
+    if (( rc )); then
+        _x_err "Saving the index to Drive failed."
+        return 1
+    fi
+    # An index sealed under an older key is replaced, not kept beside it.
+    [[ -n $xv_remote_index && $xv_remote_index != $id.index.age ]] &&
+        _xv_gdrive rm $R/$xv_remote_index >/dev/null 2>&1
+    info=$(_xv_remote_index_info)
+    xv_remote_index=${info%%$'\t'*}
+    xv_remote_mtime=${info#*$'\t'}
+}
+
+# Archive names matching an argument: a name, a name.age, an original path,
+# or a glob on original paths.
+_xv_find() {
+    local arg=${1%.age} name p
+    jq -r '[.name, .path] | @tsv' $index | while IFS=$'\t' read -r name p; do
+        if [[ $name == $arg || $p == ${arg:a} || $p == ${~arg} || $p == */${~arg} ]]; then
+            print -r -- $name
+        fi
+    done
+}
+
+_xv_entry() { jq -c --arg n $1 'select(.name == $n)' $index | head -1 }
+
+# --- put / push ----------------------------------------------------------------
+
+# After a verified upload: offer to delete the original, if it hasn't changed
+# since it was sealed, re-checking first that the copy on Drive decrypts to
+# the same content.
+_xv_offer_delete() {
+    local name=$1 entry p ref
+    entry=$(_xv_entry $name)
+    p=$(jq -r .path <<<$entry)
+    ref=$state/refs/$name.ref
+    [[ -e $p ]] || { rm -f $ref; return 0 }
+    if [[ -e $ref && -n $(find $p \( -newer $ref -o -cnewer $ref \) -print -quit 2>/dev/null) ]]; then
+        _x_warn "${p/#$HOME/~} changed after it was sealed; keeping it."
+        rm -f $ref
+        return 0
+    fi
+    rm -f $ref
+    _x_ask_yn "Delete the original ${p/#$HOME/~} ($(_x_bytes $(jq -r .tar.bytes <<<$entry)))?" || return 0
+    _x_step "Re-reading ${name}.age from Drive before deleting"
+    _xv_gdrive cat $R/$name.age |
+        x_unseal --name $name --size $(jq -r .size <<<$entry) \
+            --check $(jq -r .tar.sha256 <<<$entry) - >/dev/null || {
+        _x_err "Verification failed; ${p/#$HOME/~} was NOT deleted."
+        return 1
+    }
+    rm -rf -- $p && _x_ok "Deleted ${p/#$HOME/~}"
+}
+
+_xv_put() {
+    local -a f_direct o_key
+    zparseopts -D -E -F -- -direct=f_direct k:=o_key || return 1
+    if (( ! $# )); then
+        print -u2 "Usage: x vault put [--direct] [-k keyid] <path>…"
+        return 1
+    fi
+    local id=${o_key[2]:-$(_xv_current)} || return
+    [[ -n $id ]] || return 1
+    (( $#f_direct )) && { _xv_pull || return }
+
+    local src name failed=0
+    local -a done_names
+    local -i i=0
+    for src in "$@"; do
+        (( i++ ))
+        if [[ ! -e $src ]]; then
+            _x_err "No such file or folder: $src"
+            (( failed++ ))
+            continue
+        fi
+        name=$id.$(_xv_rand 26)
+        _x_step "[$i/$#] ${src:a:t}"
+        touch $state/refs/$name.ref
+        if (( ! $#f_direct )); then
+            x_seal -k $id --name $name --meta $S/$name.json -o $S/$name.age $src >/dev/null || {
+                rm -f $state/refs/$name.ref
+                (( failed++ ))
+                continue
+            }
+            continue
+        fi
+        local meta=$state/$name.json
+        x_seal -k $id --name $name --meta $meta -o - $src | _xv_gdrive rcat $R/$name.age &&
+            [[ $(_xv_gdrive sha256 $R/$name.age) == $(jq -r .age.sha256 $meta) ]] || {
+            _x_err "Upload of ${src:a:t} failed or didn't match; removing it from Drive."
+            _xv_gdrive rm $R/$name.age >/dev/null 2>&1
+            rm -f $meta $state/refs/$name.ref
+            (( failed++ ))
+            continue
+        }
+        jq -c '. + {uploaded: (now | todate)}' $meta >> $index && rm -f $meta
+        _x_spin "Saving the index" _xv_save_index || return
+        _x_ok "${src:a:t} is on Drive as $name.age"
+        done_names+=$name
+    done
+
+    if (( ! $#f_direct )); then
+        local -a staged=($S/*.json(N))
+        (( $#staged )) && _x_info "${#staged} archive(s) staged in ${S/#$HOME/~}. Upload with: x vault push"
+    fi
+    for name in $done_names; do
+        _xv_offer_delete $name
+    done
+    return $(( failed > 0 ))
+}
+
+_xv_push() {
+    local -a staged=($S/*.json(N))
+    if (( ! $#staged )); then
+        _x_ok "Nothing staged."
+        return 0
+    fi
+    _xv_pull || return
+    local meta name label failed=0
+    local -a done_names
+    local -i i=0
+    for meta in $staged; do
+        (( i++ ))
+        name=${meta:t:r}
+        label=$(jq -r '.path | split("/") | last' $meta)
+        _x_step "[$i/$#staged] $label ($(_x_bytes $(jq -r .size $meta)))"
+        if [[ ! -f $S/$name.age ]]; then
+            _x_err "Staged record without its archive: $name; skipping."
+            (( failed++ ))
+            continue
+        fi
+        _xv_gdrive up -d $R $S/$name.age >/dev/null &&
+            [[ $(_xv_gdrive sha256 $R/$name.age) == $(jq -r .age.sha256 $meta) ]] || {
+            _x_err "Upload of $label failed or didn't match; it stays staged."
+            (( failed++ ))
+            continue
+        }
+        jq -c '. + {uploaded: (now | todate)}' $meta >> $index
+        _x_spin "Saving the index" _xv_save_index || return
+        rm -f -- $S/$name.age $meta
+        _x_ok "$label is on Drive as $name.age"
+        done_names+=$name
+    done
+    for name in $done_names; do
+        _xv_offer_delete $name
+    done
+    return $(( failed > 0 ))
+}
+
+# --- browse / restore ---------------------------------------------------------
+
+_xv_ls() {
+    local -a f_long
+    zparseopts -D -E -F -- l=f_long || return 1
+    _xv_pull || return
+    local pattern=${1:-*} created key size kind p name
+    local -i n=0 total=0
+    jq -r '[.created[0:10], .key, .tar.bytes, .kind, .path, .name] | @tsv' $index | sort -t$'\t' -k5 |
+    while IFS=$'\t' read -r created key size kind p name; do
+        [[ $p == ${~pattern} || $p == *${~pattern}* ]] || continue
+        [[ $kind == dir ]] && p+=/
+        printf '%s  %s  %10s  %s%s\n' $created $key "$(_x_bytes $size)" "${p/#$HOME/~}" \
+            "${f_long:+  ($name.age)}"
+        (( n++, total += size ))
+    done
+    _x_info "$n archive(s), $(_x_bytes $total) of content"
+}
+
+_xv_pick_one() {
+    local -a names=($(_xv_find $1))
+    if (( ! $#names )); then
+        _x_err "No archive matches '$1' (see x vault ls)."
+        return 1
+    elif (( $#names > 1 )); then
+        _x_err "'$1' matches ${#names} archives; be more specific:"
+        local n
+        for n in $names; do
+            print -u2 "  $n  $(_xv_entry $n | jq -r .path)"
+        done
+        return 1
+    fi
+    print -r -- $names[1]
+}
+
+_xv_get() {
+    local -a o_dir
+    zparseopts -D -E -F -- C:=o_dir || return 1
+    if (( $# != 1 )); then
+        print -u2 "Usage: x vault get [-C dir] <archive | path | pattern>"
+        return 1
+    fi
+    _xv_pull || return
+    local name entry
+    name=$(_xv_pick_one $1) || return
+    entry=$(_xv_entry $name)
+    _x_step "Restoring $(jq -r .path <<<$entry | sed "s|^$HOME|~|")"
+    _xv_gdrive cat $R/$name.age |
+        x_unseal --name $name --size $(jq -r .size <<<$entry) -C ${o_dir[2]:-.} -
+}
+
+_xv_key() {
+    if (( $# != 1 )); then
+        print -u2 "Usage: x vault key <archive | path>"
+        return 1
+    fi
+    local name=${${1:t}%.age}
+    if [[ $name != [a-z2-7](#c6).[a-z2-7](#c26) ]]; then
+        _xv_pull || return
+        name=$(_xv_pick_one $1) || return
+    fi
+    x_kdf ${name%%.*} $name || return
+    _x_info "Decrypt $name.age with: age -d $name.age | zstd -d | tar x   (age asks for this passphrase)"
+}
+
+# --- rekey -------------------------------------------------------------------
+
+# "2G" / "500M" / "10K" / "123" -> bytes
+_xv_size() {
+    local -A mult=(K 1024 M 1048576 G 1073741824 T 1099511627776)
+    local n=${1%[KMGTkmgt]} u=${(U)1[-1]}
+    (( ${+mult[$u]} )) && print $(( n * mult[$u] )) || print $1
+}
+
+_xv_rekey() {
+    local -a o_from o_status o_match o_before o_larger o_smaller o_to f_all f_dry f_pick
+    zparseopts -D -E -F -- -from+:=o_from -status+:=o_status -match+:=o_match \
+        -before:=o_before -larger:=o_larger -smaller:=o_smaller -to:=o_to \
+        -all=f_all n=f_dry i=f_pick || return 1
+    if (( ! ($#o_from + $#o_status + $#o_match + $#o_before + $#o_larger + $#o_smaller + $#f_all + $#f_pick + $#) )); then
+        print -u2 "Usage: x vault rekey [--from id] [--status s] [--match glob] [--before date]"
+        print -u2 "                     [--larger size] [--smaller size] [--all] [-i] [--to id] [-n] [archive|path…]"
+        print -u2 "Say which archives: rekeying everything needs --all."
+        return 1
+    fi
+    local to=${o_to[2]:-$(_xv_current)} || return
+    [[ -n $to ]] || return 1
+    _xv_pull || return
+
+    local -a froms=(${o_from:#--from}) statuses=(${o_status:#--status}) matches=(${o_match:#--match})
+    local -A key_status
+    if (( $#statuses )); then
+        local k s
+        _x_spin -t "Reading key statuses" _xv_keys_json | jq -r '[.id, .status] | @tsv' |
+            while IFS=$'\t' read -r k s; do key_status[$k]=$s; done
+    fi
+    local -A wanted
+    local a n
+    for a in "$@"; do
+        for n in $(_xv_find $a); do wanted[$n]=1; done
+    done
+
+    local name key created size p m hit
+    local -a chosen
+    local -i total=0
+    while IFS=$'\t' read -r name key created size p; do
+        [[ $key == $to ]] && continue
+        (( $# )) && (( ! ${+wanted[$name]} )) && continue
+        (( $#froms )) && (( ! ${froms[(Ie)$key]} )) && continue
+        (( $#statuses )) && (( ! ${statuses[(Ie)${key_status[$key]:-active}]} )) && continue
+        if (( $#matches )); then
+            hit=0
+            for m in $matches; do [[ $p == ${~m} || $p == *${~m}* ]] && hit=1; done
+            (( hit )) || continue
+        fi
+        [[ -n ${o_before[2]} && ! $created < ${o_before[2]} ]] && continue
+        [[ -n ${o_larger[2]} ]] && (( size <= $(_xv_size ${o_larger[2]}) )) && continue
+        [[ -n ${o_smaller[2]} ]] && (( size >= $(_xv_size ${o_smaller[2]}) )) && continue
+        chosen+=$name
+        (( total += size ))
+    done < <(jq -r '[.name, .key, .created, .size, .path] | @tsv' $index)
+
+    if (( $#f_pick && $#chosen )); then
+        if (( ! $+commands[fzf] )); then
+            _x_err "-i needs fzf."
+            return 1
+        fi
+        chosen=(${(f)"$(for n in $chosen; do _xv_entry $n | jq -r '"\(.name)\t\(.key)\t\(.path)"'; done |
+            fzf --multi --delimiter=$'\t' --with-nth=2,3 --prompt="rekey to $to> " |
+            cut -f1)"})
+        total=0
+        for n in $chosen; do (( total += $(_xv_entry $n | jq -r .size) )); done
+    fi
+    if (( ! $#chosen )); then
+        _x_ok "Nothing to rekey."
+        return 0
+    fi
+
+    _x_step "${#chosen} archive(s), $(_x_bytes $total), to key $to"
+    for n in $chosen; do
+        _xv_entry $n | jq -r '"  \(.key)  \(.path)"' | sed "s|$HOME|~|"
+    done >&2
+    if (( $#f_dry )); then
+        _x_info "Dry run; nothing changed."
+        return 0
+    fi
+
+    local -i i=0 failed=0
+    for name in $chosen; do
+        (( i++ ))
+        _xv_rekey_one $name $to $i ${#chosen} || (( failed++ ))
+    done
+    (( failed )) && _x_warn "$failed archive(s) failed; rerun the same command to retry them."
+    return $(( failed > 0 ))
+}
+
+# Swap only the outer age layer: Drive -> decrypt -> encrypt -> Drive, with
+# no decompression and nothing on disk. The decrypted stream is checked
+# against the hash recorded at seal time before the index switches over and
+# the old archive goes.
+_xv_rekey_one() {
+    local old=$1 to=$2 i=$3 n=$4
+    local entry new old_pass new_pass tmp ofd nfd rc=0
+    entry=$(_xv_entry $old)
+    new=$to.$(_xv_rand 26)
+    old_pass=$(x_kdf ${old%%.*} $old) || return
+    new_pass=$(x_kdf $to $new) || return
+    tmp=$(mktemp -d "${TMPDIR:-/tmp}/xvault.XXXXXX") || return
+    _x_step "[$i/$n] $(jq -r '.path | split("/") | last' <<<$entry): ${old%%.*} → $to"
+    {
+        exec {ofd}< <(print -r -- $old_pass)
+        exec {nfd}< <(print -r -- $new_pass)
+        _xv_gdrive cat $R/$old.age |
+            _x_pv -s $(jq -r .size <<<$entry) -N "re-keying" |
+            AGE_PASSPHRASE_FD=$ofd age -d -j batchpass |
+            $xstream hash --expect $(jq -r .inner.sha256 <<<$entry) |
+            AGE_PASSPHRASE_FD=$nfd age -e -j batchpass |
+            $xstream hash --meta $tmp/age.json |
+            _xv_gdrive rcat $R/$new.age || rc=$?
+        (( rc )) || [[ $(_xv_gdrive sha256 $R/$new.age) == $(jq -r .sha256 $tmp/age.json) ]] || rc=1
+        if (( rc )); then
+            _xv_gdrive rm $R/$new.age >/dev/null 2>&1
+        else
+            jq -c --arg old $old --arg new $new --arg to $to --slurpfile age $tmp/age.json '
+                if .name == $old then
+                    . + {name: $new, key: $to, age: $age[0], size: $age[0].bytes,
+                         rekeyed: (now | todate)}
+                else . end' $index > $index.new && mv $index.new $index
+            _x_spin "Saving the index" _xv_save_index || rc=1
+        fi
+    } always {
+        (( ofd )) && exec {ofd}<&-
+        (( nfd )) && exec {nfd}<&-
+        rm -rf -- $tmp
+    }
+    if (( rc )); then
+        _x_err "Rekeying $old failed; the old archive is untouched."
+        return 1
+    fi
+    _x_spin -t "Removing the old archive" _xv_gdrive rm $R/$old.age >/dev/null
+    _x_ok "Now $new.age"
+}
+
+# --- rm ------------------------------------------------------------------------
+
+# The index entry goes first, then the file: an interruption leaves at worst
+# an orphan on Drive (x vault check lists it), never an entry without data.
+_xv_rm() {
+    local -a f_dry
+    zparseopts -D -E -F -- n=f_dry || return 1
+    if (( ! $# )); then
+        print -u2 "Usage: x vault rm [-n] <archive | path | pattern>…"
+        return 1
+    fi
+    _xv_pull || return
+    local a n
+    local -a names
+    for a in "$@"; do
+        local -a found=($(_xv_find $a))
+        (( $#found )) || _x_warn "No archive matches '$a'."
+        names+=($found)
+    done
+    names=(${(u)names})
+    if (( ! $#names )); then
+        return 1
+    fi
+
+    local -i total=0
+    _x_step "${#names} archive(s) to delete from Drive:"
+    for n in $names; do
+        _xv_entry $n | jq -r '"  \(.created[0:10])  \(.key)  \(.path)"' | sed "s|$HOME|~|" >&2
+        (( total += $(_xv_entry $n | jq -r .size) ))
+    done
+    _x_info "$(_x_bytes $total) on Drive. Originals on this Mac are not touched."
+    if (( $#f_dry )); then
+        _x_info "Dry run; nothing changed."
+        return 0
+    fi
+    _x_ask_yn "Delete them permanently from the vault?" || {
+        _x_warn "Stopped; nothing was deleted."
+        return 1
+    }
+
+    local -i failed=0
+    for n in $names; do
+        jq -c --arg n $n 'select(.name != $n)' $index > $index.new && mv $index.new $index
+    done
+    _x_spin "Saving the index" _xv_save_index || return
+    for n in $names; do
+        X_QUIET=1 _xv_gdrive rm $R/$n.age || {
+            _x_warn "Couldn't delete $n.age on Drive; x vault check will list it."
+            (( failed++ ))
+        }
+    done
+    _x_ok "Deleted $(( ${#names} - failed )) archive(s) ($(_x_bytes $total))."
+    _x_info "Drive keeps them in its trash for 30 days."
+    return $(( failed > 0 ))
+}
+
+# --- check ---------------------------------------------------------------------
+
+_xv_check() {
+    _xv_pull || return
+    local listing
+    listing=$(_x_spin -t "Listing $R" _xv_gdrive lsjson $R) || return
+    local -a on_drive in_index orphans missing
+    on_drive=(${(f)"$(jq -r '.[] | select(.IsDir | not) | .Name
+        | select(test("^[a-z2-7]{6}\\.[a-z2-7]{26}\\.age$")) | rtrimstr(".age")' <<<$listing)"})
+    in_index=(${(f)"$(jq -r .name $index)"})
+    orphans=(${on_drive:|in_index})
+    missing=(${in_index:|on_drive})
+    _x_info "${#in_index} archive(s) in the index, ${#on_drive} on Drive"
+    if (( $#orphans )); then
+        _x_warn "${#orphans} on Drive but not in the index (e.g. an interrupted rekey):"
+        print -l -u2 -- "  "${^orphans}.age
+        _x_info "Remove with: x gdrive -r $xv_remote rm $R/<name>.age"
+    fi
+    if (( $#missing )); then
+        _x_err "${#missing} in the index but missing on Drive:"
+        local m
+        for m in $missing; do print -u2 "  $m.age  $(_xv_entry $m | jq -r .path)"; done
+    fi
+    (( $#orphans + $#missing )) || _x_ok "Index and Drive agree."
+    (( ! $#missing ))
+}
+
+# --- share ---------------------------------------------------------------------
+
+_xv_share() {
+    local -a o_to
+    zparseopts -D -E -F -- -to:=o_to || return 1
+    if (( $# != 1 )) || [[ ! -e $1 ]]; then
+        print -u2 "Usage: x vault share [--to DIR] <path>"
+        return 1
+    fi
+    local src=${1:a}
+
+    # The friend runs open.sh from this repo, pinned to a pushed commit.
+    local repo script=x/.config/x/share/open.sh sha origin
+    repo=$(git -C ${X_DIR:A} rev-parse --show-toplevel) || return
+    if ! git -C $repo diff --quiet HEAD -- $script; then
+        _x_err "$script has uncommitted changes; commit and push it first."
+        return 1
+    fi
+    sha=$(git -C $repo log -1 --format=%H -- $script)
+    if [[ -z $sha ]] || ! git -C $repo branch -r --contains $sha 2>/dev/null | grep -q .; then
+        _x_err "$script isn't pushed yet; push it first (the link pins a public commit)."
+        return 1
+    fi
+    origin=$(git -C $repo remote get-url origin)
+    origin=${${${origin%.git}#git@github.com:}#https://github.com/}
+
+    local name=share-$(_xv_rand 16) pass tmp rc=0 url
+    pass=$(head -c 32 /dev/urandom | base64 | tr '+/' '-_' | tr -d '=\n')
+    tmp=$(mktemp -d "${TMPDIR:-/tmp}/xvault.XXXXXX") || return
+    {
+        print -r -- $pass | x_seal -p - -z gzip --portable --name $name \
+            -o $tmp/$name.age $src >/dev/null &&
+            _xv_gdrive up -d $R/shares $tmp/$name.age >/dev/null &&
+            url=$(_xv_gdrive link $R/shares/$name.age) || rc=1
+    } always { rm -rf -- $tmp }
+    (( rc )) && { _x_err "Sharing ${src:t} failed."; return 1 }
+
+    local to=${o_to[2]:+ --to ${(q)o_to[2]}}
+    local message="I'm sending you ${src:t} (encrypted).
+1. Download it: $url
+2. Open Terminal and paste:
+curl -fsSL https://raw.githubusercontent.com/$origin/$sha/$script | bash -s -- $pass $name.age$to"
+    print -r -- $message
+    if [[ -t 1 ]] && (( $+commands[pbcopy] )); then
+        print -rn -- $message | pbcopy
+        _x_ok "Message copied to the clipboard."
+    fi
+    _x_info "Anyone with the message can open it. Remove it later with: x gdrive -r $xv_remote rm $R/shares/$name.age"
+}
+
+# --- dispatch ------------------------------------------------------------------
+
+local cmd=${1:-}
+(( $# )) && shift
+case $cmd in
+    ""|-h|--help|help)
+        sed -n '/^# Usage:/,/^$/s/^# \{0,1\}//p' $X_FUNCTIONS_DIR/x_vault
+        [[ -n $cmd ]] || return 1
+        return 0
+        ;;
+esac
+_xv_config || return
+case $cmd in
+    init)   _xv_init "$@" ;;
+    put)    _xv_put "$@" ;;
+    push)   _xv_push "$@" ;;
+    ls)     _xv_ls "$@" ;;
+    get)    _xv_get "$@" ;;
+    key)    _xv_key "$@" ;;
+    keys)   _xv_keys "$@" ;;
+    rekey)  _xv_rekey "$@" ;;
+    check)  _xv_check "$@" ;;
+    rm)     _xv_rm "$@" ;;
+    share)  _xv_share "$@" ;;
+    *)
+        _x_err "Unknown subcommand '$cmd'."
+        print -u2 $usage
+        return 1
+        ;;
+esac

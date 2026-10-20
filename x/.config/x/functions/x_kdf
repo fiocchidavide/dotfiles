@@ -1,0 +1,53 @@
+## derive a per-archive passphrase from a vault master key (HKDF-SHA256)
+#@needs op uv
+# Usage:
+#   x kdf [-P purpose] [-m -] <keyid> <name>   print the passphrase
+#   x kdf --selftest                         check HKDF against RFC 5869
+#
+# passphrase = base64url(HKDF-SHA256(ikm = master key <keyid>,
+#                                    salt = "x-vault/v1",
+#                                    info = purpose 0x00 keyid 0x00 name))
+# purpose defaults to "file" (archives); x vault uses "index" for its index.
+#
+# The master key is read from 1Password (item <keyid>, field "key", in vault
+# X_VAULT_OP_VAULT) and handed to the derivation on stdin, never on argv.
+# With -m - it is read from stdin instead: a recovery path without op.
+
+emulate -L zsh
+setopt extended_glob
+
+local -a o_purpose o_master o_selftest
+zparseopts -D -E -F -- P:=o_purpose m:=o_master -selftest=o_selftest || return 1
+
+local xstream=$X_DIR/lib/xstream.py
+if (( $#o_selftest )); then
+    uv run --quiet --no-project python -I $xstream selftest
+    return
+fi
+
+if (( $# != 2 )); then
+    print -u2 "Usage: x kdf [-P purpose] [-m -] <keyid> <name>"
+    print -u2 "       x kdf --selftest"
+    return 1
+fi
+local id=$1 name=$2 purpose=${o_purpose[2]:-file}
+if [[ $id != [a-z2-7](#c6) ]]; then
+    _x_err "Not a key id: '$id' (6 characters, a-z and 2-7)."
+    return 1
+fi
+
+local master
+if [[ ${o_master[2]} == - ]]; then
+    IFS= read -r master
+else
+    _x_ask_config X_VAULT_OP_VAULT "1Password vault for the vault keys" x-vault || return
+    master=$(_x_spin "Reading key $id from 1Password" \
+        op read --no-newline "op://$X_VAULT_OP_VAULT/$id/key") || return 1
+fi
+if [[ -z $master ]]; then
+    _x_err "Empty master key for $id."
+    return 1
+fi
+
+print -r -- "$master" |
+    uv run --quiet --no-project python -I $xstream hkdf --purpose "$purpose" --id "$id" --name "$name"
