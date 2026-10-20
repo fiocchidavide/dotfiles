@@ -202,7 +202,7 @@ _x_elapsed() {
 }
 
 # _x_spin [-t] <label> <cmd…>: run cmd with a spinner and elapsed time beside
-# the label, then leave a single ✅/❌ line (-t: no line on success). cmd's
+# the label, then leave a single success/error line (-t: none on success). cmd's
 # stdout passes through untouched (so `key=$(_x_spin "Reading key" op read …)`
 # works); its exit status is kept.
 _x_spin() {

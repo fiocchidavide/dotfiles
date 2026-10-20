@@ -261,14 +261,22 @@ _xv_save_index() {
     xv_remote_mtime=${info#*$'\t'}
 }
 
-# Archive names matching an argument: a name, a name.age, an original path,
-# or a glob on original paths.
+# _xv_matches <name> <path> <arg>: the one rule every command uses to pick
+# archives. <arg> is an archive name (with or without .age), a path, any part
+# of the original path taken literally ("Photos [2019]"), or a glob matching
+# the whole path or its last component ("*/2019-*", "*.dmg"). Invalid glob
+# syntax just doesn't match as a glob.
+_xv_matches() {
+    setopt local_options no_bad_pattern
+    local name=$1 p=$2 a=${3%.age}
+    [[ $name == $a || $p == ${3:a} || $p == *"$3"* || $p == ${~3} || ${p:t} == ${~3} ]]
+}
+
+# Archive names in the index matching an argument.
 _xv_find() {
-    local arg=${1%.age} name p
+    local name p
     jq -r '[.name, .path] | @tsv' $index | while IFS=$'\t' read -r name p; do
-        if [[ $name == $arg || $p == ${arg:a} || $p == ${~arg} || $p == */${~arg} ]]; then
-            print -r -- $name
-        fi
+        _xv_matches $name $p $1 && print -r -- $name
     done
 }
 
@@ -328,6 +336,11 @@ _xv_put() {
         fi
         name=$id.$(_xv_rand 26)
         _x_step "[$i/$#] ${src:a:t}"
+        # A heads-up, from the local index cache and staging (no Drive call).
+        local -a earlier=($index(N) $S/*.json(N))
+        local when=$(jq -rs --arg p ${src:A} \
+            'map(select(.path == $p) | .created[0:10]) | sort | last // empty' $earlier 2>/dev/null)
+        [[ -n $when ]] && _x_info "Already in the vault (sealed $when); this adds another version."
         touch $state/refs/$name.ref
         if (( ! $#f_direct )); then
             x_seal -k $id --name $name --meta $S/$name.json -o $S/$name.age $src >/dev/null || {
@@ -362,8 +375,8 @@ _xv_put() {
     return $(( failed > 0 ))
 }
 
-# Which staged archives to push: those matching the arguments (name or a
-# glob on the original path), all with --all or when there's only one or no
+# Which staged archives to push: those matching the arguments (see
+# _xv_matches), all with --all or when there's only one or no
 # terminal, otherwise picked in fzf (Tab marks several).
 _xv_push_select() {
     local -a all=($S/*.json(N)) chosen
@@ -372,7 +385,7 @@ _xv_push_select() {
         for meta in $all; do
             p=$(jq -r .path $meta)
             for a in "$@"; do
-                if [[ ${meta:t:r} == ${a%.age} || $p == ${a:a} || $p == ${~a} || $p == *${~a}* ]]; then
+                if _xv_matches ${meta:t:r} $p $a; then
                     chosen+=$meta
                     break
                 fi
@@ -455,11 +468,11 @@ _xv_ls() {
     local -a f_long
     zparseopts -D -E -F -- l=f_long || return 1
     _xv_pull || return
-    local pattern=${1:-*} created key size kind p name
+    local pattern=${1:-} created key size kind p name
     local -i n=0 total=0
     jq -r '[.created[0:10], .key, .tar.bytes, .kind, .path, .name] | @tsv' $index | sort -t$'\t' -k5 |
     while IFS=$'\t' read -r created key size kind p name; do
-        [[ $p == ${~pattern} || $p == *${~pattern}* ]] || continue
+        [[ -z $pattern ]] || _xv_matches $name $p $pattern || continue
         [[ $kind == dir ]] && p+=/
         printf '%s  %s  %10s  %s%s\n' $created $key "$(_x_bytes $size)" "${p/#$HOME/~}" \
             "${f_long:+  ($name.age)}"
@@ -470,12 +483,23 @@ _xv_ls() {
 
 _xv_pick_one() {
     local -a names=($(_xv_find $1))
+    local n
     if (( ! $#names )); then
         _x_err "No archive matches '$1' (see x vault ls)."
         return 1
     elif (( $#names > 1 )); then
+        # Versions of one path: take the newest, and say how to get another.
+        local same newest
+        same=$(for n in $names; do _xv_entry $n; done | jq -rs 'map(.path) | unique | length')
+        if (( same == 1 )); then
+            newest=$(for n in $names; do _xv_entry $n; done |
+                jq -rs 'sort_by(.created) | last | "\(.name)\t\(.created[0:10])"')
+            _x_info "${#names} versions of this path; taking the newest (sealed ${newest#*$'\t'})." \
+                "Pick another by name: x vault ls -l"
+            print -r -- ${newest%%$'\t'*}
+            return 0
+        fi
         _x_err "'$1' matches ${#names} archives; be more specific:"
-        local n
         for n in $names; do
             print -u2 "  $n  $(_xv_entry $n | jq -r .path)"
         done
@@ -564,7 +588,7 @@ _xv_rekey() {
         (( $#statuses )) && (( ! ${statuses[(Ie)${key_status[$key]:-active}]} )) && continue
         if (( $#matches )); then
             hit=0
-            for m in $matches; do [[ $p == ${~m} || $p == *${~m}* ]] && hit=1; done
+            for m in $matches; do _xv_matches $name $p $m && hit=1; done
             (( hit )) || continue
         fi
         [[ -n ${o_before[2]} && ! $created < ${o_before[2]} ]] && continue

@@ -47,7 +47,14 @@ if [[ ! -e $src ]]; then
     _x_err "No such file or folder: $src"
     return 1
 fi
-src=${src:a}
+# A symlink as the argument would archive only the link itself, and its target
+# would then look backed up when it isn't: follow it.
+if [[ -L $src ]]; then
+    _x_info "${src:t} is a symlink; sealing what it points to: ${src:A}"
+    src=${src:A}
+else
+    src=${src:a}
+fi
 
 # 26 base32 characters = 130 random bits; rejection sampling keeps it uniform.
 _x_seal_rand() { LC_ALL=C tr -dc 'a-z2-7' </dev/urandom | head -c $1 }
@@ -96,8 +103,10 @@ case ${o_comp[2]:-zstd} in
     *)    _x_err "Unknown compression '${o_comp[2]}' (zstd or gzip)."; return 1 ;;
 esac
 
-local -a tar_opts=(-c -f - -C ${src:h})
-(( $#f_portable )) && tar_opts+=(--no-mac-metadata --no-xattrs)
+# macOS tar keeps ACLs and extended attributes (Finder tags, quarantine, …)
+# in the archive by default; --portable leaves them out for other systems.
+local -a tar_opts=(-c -f - -C ${src:h}) tar_env=()
+(( $#f_portable )) && tar_opts+=(--no-mac-metadata --no-xattrs) tar_env=(COPYFILE_DISABLE=1)
 
 local estimate
 if [[ -d $src ]]; then
@@ -107,7 +116,7 @@ else
     estimate=$(stat -f %z $src)
 fi
 
-local tmp pfd rc=0
+local tmp pfd rc=0 sealed=0
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/xseal.XXXXXX") || return 1
 local xstream=(uv run --quiet --no-project python -I $X_DIR/lib/xstream.py)
 local partial=$out.partial
@@ -117,16 +126,17 @@ _x_step "Sealing ${src:t} ($(_x_bytes $estimate)) → ${out:t}"
 local t0=$EPOCHREALTIME
 {
     exec {pfd}< <(print -r -- $pass)
-    COPYFILE_DISABLE=1 tar $tar_opts -- ${src:t} |
+    env $tar_env tar $tar_opts -- ${src:t} |
         $xstream hash --meta $tmp/tar.json |
         _x_pv -s $estimate -N ${src:t} |
         $compress |
         $xstream pad --meta $tmp/inner.json ${f_nopad:+--no-pad} |
         AGE_PASSPHRASE_FD=$pfd age -e -j batchpass |
-        $xstream hash --meta $tmp/age.json > $partial || rc=$?
+        $xstream hash --meta $tmp/age.json > $partial && sealed=1 || rc=$?
 } always {
+    # Also on Ctrl-C, which skips the rc check below.
     (( pfd )) && exec {pfd}<&-
-    if (( rc )); then
+    if (( ! sealed )); then
         [[ $out != - ]] && rm -f -- $partial
         rm -rf -- $tmp
     fi

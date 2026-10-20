@@ -112,14 +112,15 @@ if [[ ! -d $dest ]]; then
     _x_err "No such folder: $dest"
     return 1
 fi
-local stage
+local stage extracted=0
 stage=$(mktemp -d "$dest/.unseal.XXXXXX") || return 1
 _x_step "Unsealing $label → ${dest/#$HOME/~}"
 {
-    _x_decrypt | tar -x -f - -C $stage || rc=$?
+    _x_decrypt | tar -x -f - -C $stage && extracted=1 || rc=$?
 } always {
+    # Also on Ctrl-C: no half-extracted folder left behind.
     (( pfd )) && exec {pfd}<&-
-    (( rc )) && rm -rf -- $stage
+    (( extracted )) || rm -rf -- $stage
 }
 if (( rc )); then
     _x_err "Unsealing $label failed; nothing was extracted."
@@ -131,7 +132,10 @@ for entry in $stage/*(DN); do
     [[ -e $dest/${entry:t} || -L $dest/${entry:t} ]] && clash=1
 done
 if (( clash )); then
-    local keep=$dest/${name}.unsealed
+    local keep=$dest/${name}.unsealed n=1
+    while [[ -e $keep || -L $keep ]]; do
+        keep=$dest/${name}.unsealed-$(( ++n ))
+    done
     mv -- $stage $keep
     _x_warn "Something with the same name exists in ${dest/#$HOME/~}; extracted into ${keep/#$HOME/~} instead."
     print -r -- $keep

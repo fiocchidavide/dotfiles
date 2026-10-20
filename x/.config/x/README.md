@@ -212,6 +212,15 @@ message can open that one file; it shares nothing with your master keys.
 - macOS `tar` stores names in decomposed Unicode (`é` as `e` + accent).
   APFS treats both forms as the same name. Only byte-wise tools like `diff -r`
   notice.
+- Archives keep permissions, symlinks, ACLs and extended attributes (Finder
+  tags, quarantine, …). Shares (`--portable`) leave out the macOS-only parts
+  so other systems don't get `._` files. Sealing a path that is itself a
+  symlink seals what it points to.
+- Every vault command picks archives the same way: by archive name, exact
+  path, any part of the original path, or a glob on it.
+- Deletions on Drive (`rm`, the old copy after a `rekey`, a replaced index)
+  go to Drive's trash, which counts against your quota for 30 days. Rekeying
+  a lot of data briefly needs that much extra room.
 - `x vault check` lists archives on Drive missing from the index (e.g. after
   an interrupted rekey) and vice versa.
 

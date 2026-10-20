@@ -32,3 +32,6 @@ vscode/Library/Application Support/Code/User/*
 # credentials — only the global CLAUDE.md is versioned.
 claude/.claude/*
 !claude/.claude/CLAUDE.md
+
+# Python bytecode (x/.config/x/lib)
+__pycache__/

@@ -105,6 +105,7 @@ main() {
     ok "age verified"
 
     # --- 3. decrypt and unpack ------------------------------------------------------
+    to=${to/#\~/$HOME}   # "--to ~/Apps" arrives quoted, so expand it here
     dest=${to:-$(dirname "$file")}
     if [ ! -d "$dest" ]; then
         ask "$dest doesn't exist. Create it?" y || die "Stopped."

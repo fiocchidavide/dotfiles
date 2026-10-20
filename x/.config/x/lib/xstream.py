@@ -232,7 +232,7 @@ def cmd_meter(args) -> int:
     tty = out.isatty()
     total = args.size if args.size and args.size > 0 else 0
     done, speed = 0, 0.0
-    t0 = last_t = time.monotonic()
+    t0 = last_t = now = time.monotonic()
     last_done = 0
     while chunk := src.read(CHUNK):
         dst.write(chunk)
@@ -292,6 +292,8 @@ def main() -> int:
         return args.fn(args)
     except BrokenPipeError:
         return 1
+    except KeyboardInterrupt:  # Ctrl-C: the calling command reports it
+        return 130
 
 
 if __name__ == "__main__":
