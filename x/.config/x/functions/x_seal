@@ -1,6 +1,5 @@
 ## encrypt a file or folder into one opaque .age archive (tar, zstd, padding, age)
 #@needs age age-plugin-batchpass zstd uv op jq
-#@needs-optional pv
 # Usage:
 #   x seal [-k keyid] [--name N] [-o out] [options] <path>   vault key (derived)
 #   x seal --random [-o out] [options] <path>                fresh key, printed

@@ -19,6 +19,7 @@ if (( CURRENT == 3 )); then
 fi
 
 case ${words[3]} in
+    push)  _arguments '--all[push everything staged, no picker]' '-n[list what would be pushed]' '*:staged archive or path:' ;;
     put)   _arguments '--direct[stream straight to Drive, no staging copy]' '-k[master key id]:key id:' '*:file or folder:_files' ;;
     get)   _arguments '-C[folder to extract into]:directory:_files -/' '1:archive or path:' ;;
     ls)    _arguments '-l[show archive names]' '1:pattern:' ;;

@@ -23,6 +23,7 @@
 #   x gdrive sha256 <remote>        Drive's SHA-256 of a file
 #   x gdrive exists <remote>        status 0 if the path exists
 #   x gdrive lsjson [dir]           rclone's JSON listing of a folder
+#   x gdrive up --bare …            upload with the progress bar only (no heading lines)
 #
 # Each rclone remote is described by one item in the 1Password vault
 # X_GDRIVE_OP_VAULT (default "x-gdrive"): title = remote name, fields
@@ -43,6 +44,10 @@ _x_ask_config X_GDRIVE_OP_VAULT "1Password vault for Google Drive OAuth clients"
 _x_ask_config X_GDRIVE_REMOTE "Default Google Drive remote for x gdrive" drive || return
 local xg_remote=${o_remote[2]:-$X_GDRIVE_REMOTE}
 
+# Drive uploads go in chunks of 8 MiB by default, which caps large uploads
+# well below most connections; 64 MiB costs that much memory per transfer.
+local -x RCLONE_DRIVE_CHUNK_SIZE=${RCLONE_DRIVE_CHUNK_SIZE:-64M}
+
 _x_gdrive_remote_exists() {
     rclone listremotes 2>/dev/null | grep -qxF "$xg_remote:"
 }
@@ -57,12 +62,17 @@ _x_gdrive_ready() {
 # "Vault/a.age" -> "vault:Vault/a.age"
 _x_gdrive_path() { print -r -- "$xg_remote:${1#/}" }
 
-# rclone transfer flags: a live one-line progress on a terminal, quiet otherwise.
-_x_gdrive_progress() {
+# _x_gdrive_run <label> <rclone subcommand> [args…]: run a transfer with a
+# progress bar drawn from rclone's JSON stats (stderr); quiet otherwise.
+_x_gdrive_run() {
+    local label=$1 sub=$2; shift 2
     if _x_fancy && (( ! ${X_QUIET:-0} )); then
-        print -l -- --progress --stats-one-line --stats 500ms
+        { rclone $sub --use-json-log --stats 500ms --stats-log-level NOTICE \
+              --log-level NOTICE "$@" 2>&1 1>&3 3>&- |
+            uv run --quiet --no-project python -I $X_DIR/lib/xstream.py rclonebar --label $label
+        } 3>&1
     else
-        print -- --quiet
+        rclone $sub --quiet "$@"
     fi
 }
 
@@ -233,8 +243,8 @@ _x_gdrive_ls() {
 }
 
 _x_gdrive_up() {
-    local -a o_dir f_move
-    zparseopts -D -E -F -- d:=o_dir -move=f_move || return 1
+    local -a o_dir f_move f_bare
+    zparseopts -D -E -F -- d:=o_dir -move=f_move -bare=f_bare || return 1
     _x_gdrive_ready || return
     if (( ! $# )); then
         print -u2 "Usage: x gdrive up [-d remote-dir] [--move] <local>…"
@@ -242,7 +252,7 @@ _x_gdrive_up() {
     fi
     local dir=${o_dir[2]:-} src dest verb=copy failed=0 t0
     (( $#f_move )) && verb=move
-    local -a progress=($(_x_gdrive_progress)) extra
+    local -a extra
     local -i i=0
     for src in "$@"; do
         (( i++ ))
@@ -253,20 +263,20 @@ _x_gdrive_up() {
             continue
         fi
         dest=$(_x_gdrive_path ${dir:+$dir/}${src:t})
-        _x_step "[$i/$#] ${src:t} → $dest"
+        (( $#f_bare )) || _x_step "[$i/$#] ${src:t} → $dest"
         t0=$EPOCHREALTIME
         if [[ -d $src ]]; then
             extra=()
             [[ $verb == move ]] && extra=(--delete-empty-src-dirs)
-            rclone $verb --checksum $progress $extra -- $src $dest
+            _x_gdrive_run ${src:t} $verb --checksum $extra -- $src $dest
         else
-            rclone ${verb}to --checksum $progress -- $src $dest
+            _x_gdrive_run ${src:t} ${verb}to --checksum -- $src $dest
         fi
         if (( $? )); then
             _x_err "Upload of ${src:t} failed."
             (( failed++ ))
         else
-            _x_ok "${src:t} uploaded in $(_x_elapsed $t0)${f_move:+ (local copy removed)}"
+            (( $#f_bare )) || _x_ok "${src:t} uploaded in $(_x_elapsed $t0)${f_move:+ (local copy removed)}"
         fi
     done
     return $(( failed > 0 ))
@@ -281,7 +291,6 @@ _x_gdrive_down() {
         return 1
     fi
     local dir=${o_dir[2]:-.} src failed=0 is_dir t0
-    local -a progress=($(_x_gdrive_progress))
     local -i i=0
     for src in "$@"; do
         (( i++ ))
@@ -290,8 +299,8 @@ _x_gdrive_down() {
         t0=$EPOCHREALTIME
         is_dir=$(rclone lsjson --stat "$(_x_gdrive_path $src)" 2>/dev/null | jq -r .IsDir)
         case $is_dir in
-            true)  rclone copy --checksum $progress -- "$(_x_gdrive_path $src)" "$dir/${src:t}" ;;
-            false) rclone copyto --checksum $progress -- "$(_x_gdrive_path $src)" "$dir/${src:t}" ;;
+            true)  _x_gdrive_run ${src:t} copy --checksum -- "$(_x_gdrive_path $src)" "$dir/${src:t}" ;;
+            false) _x_gdrive_run ${src:t} copyto --checksum -- "$(_x_gdrive_path $src)" "$dir/${src:t}" ;;
             *)     _x_err "Not on Drive: $src"; (( failed++ )); continue ;;
         esac
         if (( $? )); then

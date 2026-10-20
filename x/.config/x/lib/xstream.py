@@ -12,6 +12,9 @@ Standard library only, run through `uv run --no-project`. Subcommands:
   pad [--meta F] [--no-pad]              copy stdin to stdout, then append
                                          Padmé padding as zstd skippable frames
   padme N                                print the Padmé bucket for N bytes
+  meter [--size N] [--label L]           copy stdin to stdout with a progress bar
+  rclonebar [--label L]                  progress bar from rclone's JSON log
+                                         (--use-json-log --stats) on stdin
 
 Design notes (see the x README for the whole scheme):
 - Passphrase = base64url(HKDF-SHA256(ikm=master, salt=SALT,
@@ -162,6 +165,92 @@ def cmd_pad(args) -> int:
     return 0
 
 
+def human(n: float) -> str:
+    for unit in ("B", "KiB", "MiB", "GiB", "TiB"):
+        if n < 1024 or unit == "TiB":
+            return f"{n:.0f} {unit}" if unit == "B" else f"{n:.1f} {unit}"
+        n /= 1024
+    return ""
+
+
+def clock(seconds) -> str:
+    if seconds is None:
+        return "--:--"
+    s = int(seconds)
+    return f"{s // 3600}:{s // 60 % 60:02}:{s % 60:02}" if s >= 3600 else f"{s // 60}:{s % 60:02}"
+
+
+def draw_bar(out, label, done, total, speed, eta) -> None:
+    """One frame: label, sizes, a line filled in cyan over a dim track (with a
+    half cell, ╸, for precision), percentage, speed and ETA."""
+    import shutil
+    frac = min(done / total, 1.0) if total else 0.0
+    left = f"{label}  {human(done)} / {human(total) if total else '?'}  "
+    rate = f"{human(speed or 0)}/s"
+    right = f"  {frac * 100:3.0f}%  {rate:>11}  ETA {clock(eta):>7}"
+    width = max(10, shutil.get_terminal_size((80, 24)).columns - len(left) - len(right) - 1)
+    halves = int(frac * width * 2)
+    filled = "━" * (halves // 2) + ("╸" if halves % 2 else "")
+    track = "━" * (width - len(filled))
+    out.write(f"\r\033[K{left}\033[36m{filled}\033[2;37m{track}\033[0m"
+              f"\033[1m{right[:6]}\033[0m\033[2m{right[6:]}\033[0m")
+    out.flush()
+
+
+def cmd_rclonebar(args) -> int:
+    """Draw a progress bar from rclone's --use-json-log stats lines (stdin);
+    other log lines (errors, notices) are passed through as plain text."""
+    out = sys.stderr
+    tty = out.isatty()
+    drawn = False
+    for line in sys.stdin:
+        try:
+            record = json.loads(line)
+        except ValueError:
+            record = {"msg": line.rstrip("\n")}
+        stats = record.get("stats")
+        if stats is None:
+            if record.get("msg", "").strip():
+                if drawn:
+                    out.write("\r\033[K")
+                out.write(f"{record.get('level', '')}: {record['msg'].strip()}\n")
+            continue
+        if tty:
+            draw_bar(out, args.label, stats.get("bytes", 0), stats.get("totalBytes", 0),
+                     stats.get("speed"), stats.get("eta"))
+            drawn = True
+    if drawn:
+        out.write("\r\033[K")
+        out.flush()
+    return 0
+
+
+def cmd_meter(args) -> int:
+    """Copy stdin to stdout, drawing a progress bar on stderr (a terminal)."""
+    import time
+    src, dst, out = sys.stdin.buffer, sys.stdout.buffer, sys.stderr
+    tty = out.isatty()
+    total = args.size if args.size and args.size > 0 else 0
+    done, speed = 0, 0.0
+    t0 = last_t = time.monotonic()
+    last_done = 0
+    while chunk := src.read(CHUNK):
+        dst.write(chunk)
+        done += len(chunk)
+        now = time.monotonic()
+        if tty and now - last_t >= 0.2:
+            rate = (done - last_done) / (now - last_t)
+            speed = rate if not speed else 0.8 * speed + 0.2 * rate
+            eta = (total - done) / speed if total and speed and total > done else None
+            draw_bar(out, args.label, done, max(total, done) if total else 0, speed, eta)
+            last_t, last_done = now, done
+    dst.flush()
+    if tty and now - t0 >= 0.2:
+        out.write("\r\033[K")
+        out.flush()
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(prog="xstream")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -184,6 +273,15 @@ def main() -> int:
     p.add_argument("--meta")
     p.add_argument("--no-pad", action="store_true")
     p.set_defaults(fn=cmd_pad)
+
+    p = sub.add_parser("rclonebar")
+    p.add_argument("--label", default="")
+    p.set_defaults(fn=cmd_rclonebar)
+
+    p = sub.add_parser("meter")
+    p.add_argument("--size", type=int, default=0)
+    p.add_argument("--label", default="")
+    p.set_defaults(fn=cmd_meter)
 
     p = sub.add_parser("padme")
     p.add_argument("n", type=int)

@@ -12,7 +12,6 @@ brew "atool"          # x dw       (aunpack)
 brew "mupdf-tools"    # x extrct   (mutool)
 brew "m1ddc"          # x shine
 brew "openconnect"    # x connect
-brew "pv"             # x seal, x vault  (progress bars; optional)
 brew "rclone"         # x serve webdav, x gdrive, x vault
 brew "uv"             # x ocr, x datalab, x kdf, x seal, x vault, mas
 brew "zstd"           # x seal, x unseal, x vault

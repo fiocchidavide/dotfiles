@@ -93,7 +93,7 @@ x() {
     if (( ${+functions[$fn]} )); then        # only dispatch to our own functions
         "$fn" "$@"
     else
-        print "❌ Error: 'x $cmd' is not a known command."
+        print "${X_ICONS[err]} Error: 'x $cmd' is not a known command."
         print "Available commands:"
         _x_print_commands
         print "Add one by creating '${X_FUNCTIONS_DIR/#$HOME/~}/x_${cmd}'."
@@ -117,7 +117,7 @@ _x_need_config() {
         [[ -z ${(P)var} || ${(P)var} == *'<'*'>'* ]] && unset_vars+=$var
     done
     (( ${#unset_vars} )) || return 0
-    print -u2 "❌ Missing setting(s): ${(j:, :)unset_vars}"
+    print -u2 "${X_ICONS[err]} Missing setting(s): ${(j:, :)unset_vars}"
     print -u2 "   Set them in ${X_DIR/#$HOME/~}/config.zsh (see config.zsh.example)."
     return 1
 }
@@ -128,7 +128,7 @@ _x_need_config() {
 _x_ask_config() {
     local var=$1 question=$2 default=$3 value
     [[ -n ${(P)var} && ${(P)var} != *'<'*'>'* ]] && return 0
-    if ! _x_ask "value" "❓ $question${default:+ [$default]}: "; then
+    if ! _x_ask "value" "$(_x_icon ask 35) $question${default:+ [$default]}: "; then
         # No terminal and nothing on stdin: take the default if there is one.
         if [[ -z $default ]]; then
             _x_need_config $var
@@ -157,20 +157,36 @@ _x_ask_config() {
 
 _x_fancy() { [[ -t 2 && -z ${NO_COLOR-} ]] }
 
-# _x_say <sgr> <icon> <message…>: one status line, icon coloured by <sgr>.
-_x_say() {
-    local sgr=$1 icon=$2; shift 2
+# Nerd Font icons (Material Design, outlined), one place to restyle them all.
+typeset -gA X_ICONS=(
+    step $'\U000f0142'   # md-chevron_right
+    info $'\U000f02fd'   # md-information_outline
+    ok   $'\U000f05e1'   # md-check_circle_outline
+    warn $'\U000f05d6'   # md-alert_circle_outline
+    err  $'\U000f015a'   # md-close_circle_outline
+    ask  $'\U000f0625'   # md-help_circle_outline
+    key  $'\U000f030b'   # md-key_variant
+)
+
+# _x_icon <name> <sgr>: the icon, coloured on a terminal.
+_x_icon() {
     if _x_fancy; then
-        print -u2 -r -- $'\e['"${sgr}m${icon}"$'\e[0m'" $*"
+        print -rn -- $'\e['"$2m${X_ICONS[$1]}"$'\e[0m'
     else
-        print -u2 -r -- "$icon $*"
+        print -rn -- ${X_ICONS[$1]}
     fi
 }
-_x_step() { (( ${X_QUIET:-0} )) && return; _x_fancy && print -u2 -r -- $'\e[1;34m▸ \e[0;1m'"$*"$'\e[0m' || print -u2 -r -- "▸ $*" }
-_x_info() { (( ${X_QUIET:-0} )) && return; _x_fancy && print -u2 -r -- $'\e[2m  '"$*"$'\e[0m' || print -u2 -r -- "  $*" }
-_x_ok()   { (( ${X_QUIET:-0} )) || _x_say 32 ✅ "$@" }
-_x_warn() { _x_say 33 ⚠️ "$@" }
-_x_err()  { _x_say 31 ❌ "$@" }
+
+# _x_say <icon> <sgr> <message…>: one status line, icon coloured by <sgr>.
+_x_say() {
+    local icon=$1 sgr=$2; shift 2
+    print -u2 -r -- "$(_x_icon $icon $sgr) $*"
+}
+_x_step() { (( ${X_QUIET:-0} )) && return; _x_fancy && print -u2 -r -- "$(_x_icon step '1;34') "$'\e[1m'"$*"$'\e[0m' || _x_say step 0 "$@" }
+_x_info() { (( ${X_QUIET:-0} )) && return; _x_fancy && print -u2 -r -- "$(_x_icon info 36) "$'\e[2m'"$*"$'\e[0m' || _x_say info 0 "$@" }
+_x_ok()   { (( ${X_QUIET:-0} )) || _x_say ok 32 "$@" }
+_x_warn() { _x_say warn 33 "$@" }
+_x_err()  { _x_say err 31 "$@" }
 
 # Seconds since $1 (an $EPOCHREALTIME), formatted 4.2s / 3:07 / 1:02:03.
 _x_elapsed() {
@@ -197,6 +213,12 @@ _x_spin() {
     [[ $1 == -t ]] && { transient=1; shift }
     local label=$1; shift
     local t0=$EPOCHREALTIME rc=0
+    # Inside another spinner, just run: two would redraw the same line.
+    if (( ${X_SPINNING:-0} )); then
+        "$@"
+        return
+    fi
+    local X_SPINNING=1
     if ! _x_fancy || (( ${X_QUIET:-0} )); then
         "$@" || rc=$?
         if (( rc )); then
@@ -230,20 +252,19 @@ _x_spin() {
     return rc
 }
 
-# _x_pv [-s bytes] [-N label]: progress bar for a byte stream in a pipeline,
-# or a plain pass-through when quiet, not on a terminal, or pv is missing.
+# _x_pv [-s bytes] [-N label]: progress bar for a byte stream in a pipeline
+# (same renderer as x gdrive's transfers), or a plain pass-through when
+# quiet or not on a terminal.
 #   tar -cf - dir | _x_pv -s $bytes -N "dir" | zstd …
 _x_pv() {
     local -a size name
     zparseopts -D -E -- s:=size N:=name
-    if ! _x_fancy || (( ${X_QUIET:-0} )) || (( ! $+commands[pv] )); then
+    if ! _x_fancy || (( ${X_QUIET:-0} )); then
         cat
         return
     fi
-    local -a opts=(--progress --bytes --rate --timer --eta --width 80 --bar-style granular)
-    [[ -n ${size[2]} ]] && (( size[2] > 0 )) && opts+=(--size ${size[2]})
-    [[ -n ${name[2]} ]] && opts+=(--name "${name[2]}")
-    pv "${opts[@]}"
+    uv run --quiet --no-project python -I $X_DIR/lib/xstream.py meter \
+        --size ${size[2]:-0} --label "${name[2]:-}"
 }
 
 # _x_ask <var> <prompt> [-s]: read a line from the terminal (stdin when there
@@ -266,7 +287,7 @@ _x_ask() {
 # _x_ask_yn <question>: y/N; succeeds only on an explicit y.
 _x_ask_yn() {
     local reply
-    _x_ask reply "❓ $1 [y/N] " || return 1
+    _x_ask reply "$(_x_icon ask 35) $1 [y/N] " || return 1
     [[ $reply == [yY]* ]]
 }
 

@@ -86,9 +86,9 @@ everything but warnings and errors.
 
 | Helper | Use |
 |---|---|
-| `_x_step` / `_x_info` / `_x_ok` / `_x_warn` / `_x_err` | `▸` heading, dim detail, ✅, ⚠️, ❌ lines |
-| `_x_spin [-t] "label" cmd…` | spinner with elapsed time while cmd runs, then ✅/❌ (`-t`: no line on success); cmd's stdout passes through |
-| `… \| _x_pv -s bytes -N label \| …` | progress bar for a byte stream (`pv`), a plain pass-through otherwise |
+| `_x_step` / `_x_info` / `_x_ok` / `_x_warn` / `_x_err` | heading, dim detail, success, warning, error lines, with Nerd Font icons from `X_ICONS` |
+| `_x_spin [-t] "label" cmd…` | spinner with elapsed time while cmd runs, then a success or error line (`-t`: no line on success); cmd's stdout passes through |
+| `… \| _x_pv -s bytes -N label \| …` | progress bar for a byte stream (`xstream.py meter`, the same bar as `x gdrive` transfers), a plain pass-through otherwise |
 | `_x_ask var "prompt" [-s]`, `_x_ask_yn "question"` | read from the terminal (stdin without one) |
 | `_x_bytes n`, `_x_elapsed t0` | `1.2 GiB`, `4.2s` / `3:07` |
 
@@ -105,7 +105,10 @@ exact sizes. Each layer works on its own:
 | `x vault` | the backup framework: keys, index, staging, `put`/`push`/`get`/`rm`, `rekey`, `share` |
 
 First run: `x gdrive -r vault login`, then `x vault init`. Daily use:
-`x vault put ~/Photos/2019`, then `x vault push`. Or
+`x vault put ~/Photos/2019`, then `x vault push`. With several archives
+staged, `push` opens an fzf picker (Tab marks several). `--all` skips the
+picker, patterns pick by path (`x vault push Photos`), and `-n` lists
+without uploading. Or
 `x vault put --direct /Volumes/Ext/Big` for data that doesn't fit locally.
 
 ### Drive remotes

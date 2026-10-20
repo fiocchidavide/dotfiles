@@ -1,10 +1,11 @@
 ## encrypted backups on Google Drive: put, push, ls, get, rekey, share
 #@needs op rclone age age-plugin-batchpass zstd uv jq git
-#@needs-optional pv fzf
+#@needs-optional fzf
 # Usage:
 #   x vault init                         settings, 1Password vault, first key
 #   x vault put [--direct] <path>…       seal into staging (--direct: straight to Drive)
-#   x vault push                         upload staged archives, offer to delete originals
+#   x vault push [--all] [-n] [pattern…] upload staged archives (pick in fzf when
+#                                        several), offer to delete originals
 #   x vault ls [-l] [pattern]            archives by original path (-l: with names)
 #   x vault get [-C dir] <archive|path>  download and extract
 #   x vault key <archive|path>           print one archive's passphrase
@@ -58,11 +59,12 @@ _xv_rand() { LC_ALL=C tr -dc 'a-z2-7' </dev/urandom | head -c $1 }
 local xv_remote=vault
 _xv_gdrive() { x_gdrive -r $xv_remote "$@" }
 
+# Load the current key id into $xv_current, once per command. Call it
+# directly (not in $(…)), or the cached value is lost with the subshell.
 _xv_current() {
-    [[ -n $xv_current ]] && { print -r -- $xv_current; return }
+    [[ -n $xv_current ]] && return 0
     xv_current=$(_x_spin -t "Reading the current key" \
         op read --no-newline "op://$X_VAULT_OP_VAULT/settings/current") || return 1
-    print -r -- $xv_current
 }
 
 # All master keys as JSON lines {id, status, created}; never the key itself.
@@ -92,7 +94,7 @@ _xv_init() {
             op vault create $X_VAULT_OP_VAULT --icon vault-door >/dev/null || return
     fi
     if op item get settings --vault $X_VAULT_OP_VAULT >/dev/null 2>&1; then
-        _x_ok "Current key: $(_xv_current)"
+        _xv_current && _x_ok "Current key: $xv_current"
     else
         _xv_key_new --use || return
     fi
@@ -159,7 +161,8 @@ _xv_key_retire() {
     zparseopts -D -E -F -- -compromised=f_comp || return 1
     local id=$1 st=retired
     (( $#f_comp )) && st=compromised
-    if [[ $id == $(_xv_current) ]]; then
+    _xv_current || return
+    if [[ $id == $xv_current ]]; then
         _x_err "$id is the current key; make another one current first (x vault keys new --use)."
         return 1
     fi
@@ -184,7 +187,8 @@ _xv_keys() {
     esac
     local keys current
     keys=$(_x_spin -t "Reading keys from 1Password" _xv_keys_json) || return
-    current=$(_xv_current) || return
+    _xv_current || return
+    current=$xv_current
     _xv_pull || return
     local id st created count bytes mark
     printf '%-8s %-12s %-11s %9s %11s\n' key status created archives size
@@ -235,7 +239,8 @@ _xv_save_index() {
         _x_err "The index on Drive changed while this ran (another machine?). Run the command again."
         return 1
     fi
-    id=$(_xv_current) || return
+    _xv_current || return
+    id=$xv_current
     tmp=$(mktemp -d "${TMPDIR:-/tmp}/xvault.XXXXXX") || return
     {
         cp $index $tmp/index.jsonl
@@ -304,8 +309,11 @@ _xv_put() {
         print -u2 "Usage: x vault put [--direct] [-k keyid] <path>…"
         return 1
     fi
-    local id=${o_key[2]:-$(_xv_current)} || return
-    [[ -n $id ]] || return 1
+    local id=${o_key[2]}
+    if [[ -z $id ]]; then
+        _xv_current || return
+        id=$xv_current
+    fi
     (( $#f_direct )) && { _xv_pull || return }
 
     local src name failed=0
@@ -354,10 +362,59 @@ _xv_put() {
     return $(( failed > 0 ))
 }
 
+# Which staged archives to push: those matching the arguments (name or a
+# glob on the original path), all with --all or when there's only one or no
+# terminal, otherwise picked in fzf (Tab marks several).
+_xv_push_select() {
+    local -a all=($S/*.json(N)) chosen
+    local meta p a
+    if (( $# )); then
+        for meta in $all; do
+            p=$(jq -r .path $meta)
+            for a in "$@"; do
+                if [[ ${meta:t:r} == ${a%.age} || $p == ${a:a} || $p == ${~a} || $p == *${~a}* ]]; then
+                    chosen+=$meta
+                    break
+                fi
+            done
+        done
+    elif (( f_all || $#all <= 1 )) || ! [[ -t 0 && -t 2 ]] || (( ! $+commands[fzf] )); then
+        chosen=($all)
+    else
+        chosen=(${(f)"$(for meta in $all; do
+                jq -r --arg f $meta --arg size "$(_x_bytes $(jq -r .size $meta))" --arg home $HOME \
+                    '"\($f)\t\(.path | split("/") | last)\t\($size)\t\(.created[0:10])\t\(.path | sub("^" + $home; "~"))"' $meta
+            done |
+            fzf --multi --delimiter=$'\t' --with-nth=2.. --tabstop=2 \
+                --header='Tab: mark · Enter: push marked (or the current one) · Esc: cancel' \
+                --prompt='push > ' --height=~50% --reverse |
+            cut -f1)"})
+    fi
+    print -rl -- $chosen
+}
+
 _xv_push() {
-    local -a staged=($S/*.json(N))
-    if (( ! $#staged )); then
+    local -a f_all_opt f_dry
+    zparseopts -D -E -F -- -all=f_all_opt n=f_dry || return 1
+    local f_all=$#f_all_opt
+    local -a any=($S/*.json(N))
+    if (( ! $#any )); then
         _x_ok "Nothing staged."
+        return 0
+    fi
+    local -a staged=(${(f)"$(_xv_push_select "$@")"})
+    if (( ! $#staged )); then
+        _x_warn "Nothing selected; nothing pushed."
+        return 1
+    fi
+    if (( $#f_dry )); then
+        local -i total=0
+        local m
+        for m in $staged; do
+            print -u2 "  $(jq -r '.created[0:10]' $m)  $(_x_bytes $(jq -r .size $m))  $(jq -r .path $m | sed "s|^$HOME|~|")"
+            (( total += $(jq -r .size $m) ))
+        done
+        _x_info "${#staged} archive(s), $(_x_bytes $total) would be pushed."
         return 0
     fi
     _xv_pull || return
@@ -374,7 +431,7 @@ _xv_push() {
             (( failed++ ))
             continue
         fi
-        _xv_gdrive up -d $R $S/$name.age >/dev/null &&
+        _xv_gdrive up --bare -d $R $S/$name.age &&
             [[ $(_xv_gdrive sha256 $R/$name.age) == $(jq -r .age.sha256 $meta) ]] || {
             _x_err "Upload of $label failed or didn't match; it stays staged."
             (( failed++ ))
@@ -477,8 +534,11 @@ _xv_rekey() {
         print -u2 "Say which archives: rekeying everything needs --all."
         return 1
     fi
-    local to=${o_to[2]:-$(_xv_current)} || return
-    [[ -n $to ]] || return 1
+    local to=${o_to[2]}
+    if [[ -z $to ]]; then
+        _xv_current || return
+        to=$xv_current
+    fi
     _xv_pull || return
 
     local -a froms=(${o_from:#--from}) statuses=(${o_status:#--status}) matches=(${o_match:#--match})
@@ -710,7 +770,7 @@ _xv_share() {
     {
         print -r -- $pass | x_seal -p - -z gzip --portable --name $name \
             -o $tmp/$name.age $src >/dev/null &&
-            _xv_gdrive up -d $R/shares $tmp/$name.age >/dev/null &&
+            _xv_gdrive up --bare -d $R/shares $tmp/$name.age &&
             url=$(_xv_gdrive link $R/shares/$name.age) || rc=1
     } always { rm -rf -- $tmp }
     (( rc )) && { _x_err "Sharing ${src:t} failed."; return 1 }
