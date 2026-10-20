@@ -208,8 +208,12 @@ _xv_keys() {
 # and refuse to write if another machine replaced it in the meantime.
 
 _xv_remote_index_info() {
-    _xv_gdrive lsjson $R | jq -r '[.[] | select(.Name | test("^[a-z2-7]{6}\\.index\\.age$"))]
-        | sort_by(.ModTime) | last | select(.) | "\(.Name)\t\(.ModTime)"'
+    # Listing first, on its own: a failed listing piped into jq would read as
+    # "no index on Drive", and _xv_pull would then empty the local index.
+    local listing
+    listing=$(_xv_gdrive lsjson $R) || return
+    jq -r '[.[] | select(.Name | test("^[a-z2-7]{6}\\.index\\.age$"))]
+        | sort_by(.ModTime) | last | select(.) | "\(.Name)\t\(.ModTime)"' <<<$listing
 }
 
 _xv_pull() {
@@ -338,7 +342,9 @@ _xv_put() {
         _x_step "[$i/$#] ${src:a:t}"
         # A heads-up, from the local index cache and staging (no Drive call).
         local -a earlier=($index(N) $S/*.json(N))
-        local when=$(jq -rs --arg p ${src:A} \
+        local when=""
+        # Without files, jq would wait on stdin (the very first put).
+        (( $#earlier )) && when=$(jq -rs --arg p ${src:A} \
             'map(select(.path == $p) | .created[0:10]) | sort | last // empty' $earlier 2>/dev/null)
         [[ -n $when ]] && _x_info "Already in the vault (sealed $when); this adds another version."
         touch $state/refs/$name.ref
@@ -568,8 +574,9 @@ _xv_rekey() {
     local -a froms=(${o_from:#--from}) statuses=(${o_status:#--status}) matches=(${o_match:#--match})
     local -A key_status
     if (( $#statuses )); then
-        local k s
-        _x_spin -t "Reading key statuses" _xv_keys_json | jq -r '[.id, .status] | @tsv' |
+        local k s keys
+        keys=$(_x_spin -t "Reading key statuses" _xv_keys_json) || return
+        jq -r '[.id, .status] | @tsv' <<<$keys |
             while IFS=$'\t' read -r k s; do key_status[$k]=$s; done
     fi
     local -A wanted

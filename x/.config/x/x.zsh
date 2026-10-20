@@ -206,8 +206,9 @@ _x_elapsed() {
 # stdout passes through untouched (so `key=$(_x_spin "Reading key" op read …)`
 # works); its exit status is kept.
 _x_spin() {
-    emulate -L zsh
-    setopt no_monitor no_notify
+    # Not emulate -L zsh: cmd runs in this scope, so it must keep the caller's
+    # options (pipe_fail, extended_glob, …).
+    setopt local_options no_monitor no_notify
     zmodload zsh/datetime zsh/zselect
     local transient=0
     [[ $1 == -t ]] && { transient=1; shift }
