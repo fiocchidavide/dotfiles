@@ -1,9 +1,10 @@
 ## encrypt a file or folder into one opaque .age archive (tar, zstd, padding, age)
 #@needs age age-plugin-batchpass zstd uv op jq
-# Usage:
-#   x seal [-k keyid] [--name N] [-o out] [options] <path>   vault key (derived)
-#   x seal --random [-o out] [options] <path>                fresh key, printed
-#   x seal -p - [-o out] [options] <path>                    passphrase on stdin
+# Usage: x seal [options] <path>
+#
+#   x seal <path>                   with a vault key (derived; the default)
+#   x seal --random <path>          with a fresh random key, printed
+#   x seal -p - <path>              with the passphrase on stdin
 #
 # Options:
 #   -k keyid    master key to derive from (default: the vault's current key)
@@ -17,13 +18,14 @@
 #   --meta F    write a JSON record of hashes and sizes to F
 #   -q          no progress output
 #
-# Pipeline: tar | zstd | pad | age -e (scrypt passphrase, via batchpass).
-# The JSON record (--meta) has sha256 and length of the tar stream, of the
-# padded inner stream and of the .age file itself (to compare with Drive's).
 # With a vault key the passphrase is `x kdf <keyid> <name>`, so the archive's
 # name (the file name without .age) is part of its key: keep names as they
-# are, or pass the original with --name to x unseal. Stock tools decrypt it:
-#   age -d f.age | zstd -d | tar x      (age prompts for the passphrase)
+# are, or pass the original with --name to x unseal. Stock tools decrypt it
+# with `age -d f.age | zstd -d | tar x` (age prompts for the passphrase).
+# The --meta record has the sha256 and length of the tar stream, of the
+# padded inner stream and of the .age file (to compare with Drive's).
+
+# Pipeline: tar | zstd | pad | age -e (scrypt passphrase, via batchpass).
 # The passphrase reaches age through a pipe fd, never argv or the environment.
 
 emulate -L zsh
@@ -37,10 +39,8 @@ zparseopts -D -E -F -- k:=o_key -name:=o_name o:=o_out L:=o_level p:=o_pass \
 (( $#f_quiet )) && local X_QUIET=1
 
 if (( $#f_help || $# != 1 )); then
-    _x_usage ${f_help:+-o} "x seal [-k keyid] [--name N] [-o out] [-L level] [-z gzip] [--no-pad] [--portable] [--meta F] [-q] <path>" \
-        "x seal --random [-o out] … <path>    fresh random key, printed" \
-        "x seal -p - [-o out] … <path>        passphrase on stdin"
-    return $(( ! $#f_help ))
+    _x_help ${f_help:+-o} seal
+    return
 fi
 # Secrets are only ever read from stdin: -p takes "-", nothing else.
 if (( ${#o_pass} )) && [[ ${o_pass[2]} != - ]]; then
@@ -61,20 +61,18 @@ else
     src=${src:a}
 fi
 
-# 26 base32 characters = 130 random bits; rejection sampling keeps it uniform.
-_x_seal_rand() { LC_ALL=C tr -dc 'a-z2-7' </dev/urandom | head -c $1 }
-
+# 26 base32 characters = 130 random bits.
 local id="" name pass mode
 if (( $#f_random )); then
     mode=random
-    pass=$(head -c 32 /dev/urandom | base64 | tr '+/' '-_' | tr -d '=\n')
-    name=${o_name[2]:-share-$(_x_seal_rand 16)}
+    pass=$(_x_rand_key)
+    name=${o_name[2]:-share-$(_x_rand_b32 16)}
     f_portable=(--portable)
     (( $#o_comp )) || o_comp=(-z gzip)
 elif [[ ${o_pass[2]} == - ]]; then
     mode=given
     IFS= read -r pass
-    name=${o_name[2]:-$(_x_seal_rand 26)}
+    name=${o_name[2]:-$(_x_rand_b32 26)}
 else
     mode=vault
     id=${o_key[2]}
@@ -83,7 +81,7 @@ else
         id=$(_x_spin "Looking up the current vault key" \
             op read --no-newline "op://$X_VAULT_OP_VAULT/settings/current") || return 1
     fi
-    name=${o_name[2]:-$id.$(_x_seal_rand 26)}
+    name=${o_name[2]:-$id.$(_x_rand_b32 26)}
     if [[ $name != $id.* ]]; then
         _x_err "Archive name '$name' must start with its key id '$id.'"
         return 1

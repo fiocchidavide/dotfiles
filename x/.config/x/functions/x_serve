@@ -1,10 +1,12 @@
 ## share a local service over the tailnet (webdav | paseo), or stop sharing
 #@needs tailscale rclone op jq nc
-# Usage:
-#   x serve webdav [dir]   -> rclone WebDAV backend + tailscale in front (default $X_WEBDAV_DIR)
-#   x serve paseo          -> front the already-running paseo daemon on :6767
-#   x serve off [target]   -> stop one share, or all of them
-#   x serve                -> list the shares and whether each is up
+# Usage: x serve [webdav|paseo|off] …
+#
+#   x serve webdav [dir]   rclone WebDAV backend + tailscale in front (default $X_WEBDAV_DIR)
+#   x serve paseo          front the already-running paseo daemon on :6767
+#   x serve off|stop|down|d [webdav|paseo|all]
+#                          stop one share, or all of them (the default)
+#   x serve                list the shares and whether each is up
 #
 # Shares run in the background (`tailscale serve --bg`, rclone detached), so
 # they outlive the shell that started them, like `x connect`. Tailscale comes
@@ -105,7 +107,8 @@ _x_serve_webdav() {
     local dir="${1:-${X_WEBDAV_DIR:-$HOME/WebDAV}}"
     dir=${dir:A}
     if _x_serve_rclone_pid >/dev/null && (( ${(M)#${(f)"$(_x_serve_ports)"}:#443} )); then
-        local serving=$(<$state_dir/webdav.dir)
+        local serving=
+        [[ -r $state_dir/webdav.dir ]] && serving=$(<$state_dir/webdav.dir)
         # No folder named: whatever is up is fine.
         if [[ -z $1 || $serving == $dir ]]; then
             _x_ok "webdav is already up: $serving"
@@ -227,7 +230,7 @@ _x_serve_off() {
         webdav) _x_serve_stop_webdav ;;
         paseo)  _x_serve_stop_paseo ;;
         *)
-            _x_err "Unknown target '$target'. Try: x serve off [webdav|paseo]"
+            _x_err "Unknown target '$target'. Try: x serve off [webdav|paseo|all]"
             return 1
             ;;
     esac
@@ -253,7 +256,9 @@ _x_serve_status() {
     local rclone_up=0
     _x_serve_rclone_pid >/dev/null && rclone_up=1
     if (( ${(M)#ports:#443} && rclone_up )); then
-        _x_item on "webdav     $(<$state_dir/webdav.dir) → https://$host"
+        local served=?
+        [[ -r $state_dir/webdav.dir ]] && served=$(<$state_dir/webdav.dir)
+        _x_item on "webdav     $served → https://$host"
     elif (( ${(M)#ports:#443} || rclone_up )); then
         _x_item half "webdav     half up (run 'x serve off webdav')"
     else
@@ -274,18 +279,5 @@ case "${1:-}" in
     webdav)    shift; _x_serve_webdav "$@" ;;
     paseo)     shift; _x_serve_paseo "$@" ;;
     off|stop|down|d) shift; _x_serve_off "$@" ;;
-    -h|--help|help)
-        _x_usage -o "x serve <webdav|paseo|off>" \
-            "webdav [dir]   share a directory as WebDAV (default ${X_WEBDAV_DIR:-~/WebDAV})" \
-            "paseo          front the local paseo daemon on :6767" \
-            "off [target]   stop one share, or all of them" \
-            "(no args)      list the shares and whether each is up" \
-            "" \
-            "Shares run in the background. Tailscale is brought up when needed and" \
-            "taken down again once nothing is served, if x serve started it."
-        ;;
-    *)
-        _x_err "Unknown target '$1'. Try: x serve <webdav|paseo|off>"
-        return 1
-        ;;
+    *)         _x_help serve ;;
 esac

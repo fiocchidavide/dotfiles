@@ -3,6 +3,14 @@
 # Multiplexed APFS RAM disks. State is derived from what's actually mounted
 # (dirs matching /Volumes/RAMDisk<N>) rather than a separate stack file, so it
 # stays correct across crashes/reboots.
+# Usage: x ramdisk <command> …
+#
+#   x ramdisk create <size_in_GiB>    create the next disk (RAMDisk0, RAMDisk1, …)
+#   x ramdisk destroy [<index>|<mountpoint>|all]
+#                                     destroy the top of the stack (LIFO), a
+#                                     specific one, or all
+#   x ramdisk list|ls                 list mounted RAM disks
+
 emulate -L zsh
 local prefix="/Volumes/RAMDisk"
 local cmd="$1"
@@ -22,8 +30,8 @@ local -a idx
 case "$cmd" in
 create)
     if (( $# != 1 )); then
-        _x_usage "x ramdisk create <size_in_GiB>"
-        return 1
+        _x_help ramdisk create
+        return
     fi
     if ! [[ $1 =~ '^[0-9]+$' ]]; then
         _x_err "The size must be a whole number of GiB."
@@ -93,8 +101,8 @@ destroy)
     elif [[ $target =~ '^[0-9]+$' ]]; then
         mp="${prefix}${target}"
     else
-        _x_usage "x ramdisk destroy [<index>|<mountpoint>|all]"
-        return 1
+        _x_help ramdisk destroy
+        return
     fi
 
     if [[ ! -d $mp ]]; then
@@ -108,8 +116,8 @@ destroy)
         _x_err "Can't determine the device for $mp."
         return 1
     fi
-    # backing store = Physical Store of the APFS container
-    backing=$(diskutil info "${device%s*}" | awk '/Physical Store/{print $NF; exit}')
+    # backing store = Physical Store of the APFS container (diskNsM -> diskN)
+    backing=$(diskutil info "${device%s<->}" | awk '/Physical Store/{print $NF; exit}')
     if [[ -z $backing ]]; then
         _x_err "Can't determine the backing device."
         return 1
@@ -147,17 +155,7 @@ list|ls)
     done
     ;;
 
-""|-h|--help|help)
-    _x_usage ${cmd:+-o} "x ramdisk create | destroy | list" \
-        "create <size_in_GiB>          create the next disk (RAMDisk0, RAMDisk1, …)" \
-        "destroy [<index>|<mp>|all]    destroy top of stack (LIFO), a specific one, or all" \
-        "list                          list mounted RAM disks"
-    [[ -n $cmd ]] || return 1     # asked for: fine; no subcommand: an error
-    ;;
-
 *)
-    _x_err "Unknown subcommand: x ramdisk $cmd"
-    x_ramdisk --help >&2
-    return 1
+    _x_help ramdisk
     ;;
 esac

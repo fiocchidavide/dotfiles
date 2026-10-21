@@ -1,14 +1,9 @@
-# Completion hook for `x datalab …`; words[3] is the subcommand.
-local -a subcmds=(
-    'convert:convert documents (accurate, all output formats)'
-)
-
-if (( CURRENT == 3 )); then
-    _describe 'subcommand' subcmds
-    return
-fi
-
-[[ ${words[3]} == convert ]] && _arguments \
+# Completion hook for `x datalab convert …` (x completes the subcommand).
+[[ ${words[3]} == convert ]] || return
+# _arguments takes words[1] for the command: drop `x datalab`.
+shift 2 words
+(( CURRENT -= 2 ))
+_arguments \
     '-o[output directory]:directory:_files -/' \
     '-p[page range, e.g. 0-2,4]:range:' \
     '*:document:_files'

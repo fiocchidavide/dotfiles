@@ -37,8 +37,9 @@ runtime, so both work from any clone location.
 
 ## Private settings
 
-Nothing machine- or person-specific is versioned. One file stays git-ignored
-and is created per machine:
+No secrets or per-machine settings are versioned (only the git identity in
+`.gitconfig` and project paths in `.zshenv`). One file stays git-ignored and
+is created per machine:
 
 **`x/.config/x/config.zsh`**: usernames, 1Password secret references
 (`op://…`) and defaults for `x` commands. Start from the versioned
@@ -96,4 +97,5 @@ cp x/.config/x/config.zsh.example x/.config/x/config.zsh   # then fill it in
 `$ZSH_CUSTOM/plugins` — these aren't on Homebrew, so without this step a fresh
 clone would load none of them.
 
-Still manual (see `Brewfile` comments): `webtorrent-cli` (pnpm).
+Still manual (see `Brewfile` comments): `webtorrent-cli` (pnpm) and
+`tailscale` (the macOS app ships the CLI).

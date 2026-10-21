@@ -2,13 +2,14 @@
 # Reads `#@needs <bin>…` (required) and `#@needs-optional <bin>…` lines from
 # every command file — the same lightweight convention as `## description`.
 # Add a dependency to a new command by adding one such line; nothing else.
+# Usage: x doctor [command]
+#
+#   x doctor              check every command's declared dependencies (#@needs)
+#   x doctor <command>    check only that command
+
 emulate -L zsh
 # Rows are composed in $(…), where stdout is a pipe: decide colour here.
 local X_FANCY_OUT; _x_fancy 1 && X_FANCY_OUT=1
-if [[ $1 == (-h|--help) ]]; then
-    _x_usage -o "x doctor [command]" "check declared dependencies (#@needs), of one command or all"
-    return 0
-fi
 
 local only="$1"
 local -a missing_all

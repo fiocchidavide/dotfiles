@@ -1,0 +1,10 @@
+# Completion hook for `x watch …`: its own options and the torrent (x offers
+# the players, from the Usage block). webtorrent's flags pass through.
+# _arguments takes words[1] for the command: drop the `x`.
+shift words
+(( CURRENT-- ))
+_arguments \
+    '--ram=-[buffer on a RAM disk (size in GiB, default 8)]::size in GiB:' \
+    '-i[pick the file to stream with fzf]' \
+    '-s[list the files, or stream file N]::file index:' \
+    '*:torrent file, URL or magnet:_files -g "*.torrent(-.)"'

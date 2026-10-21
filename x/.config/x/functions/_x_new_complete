@@ -1,0 +1,2 @@
+# Completion hook for `x new …`.
+(( CURRENT == 3 )) && _message 'name for the new command'

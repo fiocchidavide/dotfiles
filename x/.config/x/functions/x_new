@@ -1,21 +1,35 @@
 ## scaffold a new command file and open it in $EDITOR
+# Usage: x new <name>
+#
+# Creates functions/x_<name> from a template and opens it in $EDITOR.
+
 emulate -L zsh
-if [[ $1 == (-h|--help) ]]; then
-    _x_usage -o "x new <name>" "create functions/x_<name> from a template and open it in \$EDITOR"
-    return 0
-fi
 local name="$1"
-[[ -z $name ]] && { _x_usage "x new <name>"; return 1; }
+[[ -z $name ]] && { _x_help new; return }
 [[ $name =~ '^[A-Za-z_][A-Za-z0-9_-]*$' ]] ||
     { _x_err "A command name is a letter or underscore, then letters, digits, _ or -."; return 1; }
 local file="$X_FUNCTIONS_DIR/x_${name}"
 [[ -e $file ]] && { _x_err "${file/#$HOME/~} already exists (use: x edit $name)"; return 1; }
 
-cat > "$file" <<'EOF'
+# NAME stands for the command until the sed below.
+sed "s/NAME/$name/g" > "$file" <<'EOF'
 ## TODO: one-line description (shows in `x` help + completion)
 # Optional: declare runtime deps for `x doctor`, e.g.:  #@needs curl jq
-# Output: _x_step/_x_info/_x_ok/_x_warn/_x_err, _x_usage (see x.zsh).
+# Output: _x_step/_x_info/_x_ok/_x_warn/_x_err (see x.zsh).
+# Usage: x NAME <arg>
+#
+# TODO: what it does. This block is the help (x NAME -h): the Usage line
+# gives the shape, then any forms or subcommands, one `#   x NAME <sub> …`
+# line each with what it does after 2+ spaces (see _x_synopses in x.zsh),
+# then prose about using it. On misuse, show it with `_x_help NAME; return`.
+
+# How it works goes here, after the blank line that ends the help.
+
 emulate -L zsh
+if [[ -z $1 ]]; then
+    _x_help NAME
+    return
+fi
 
 _x_info "TODO: implement this command"
 EOF

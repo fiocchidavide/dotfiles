@@ -1,38 +1,14 @@
-# Completion hook for `x gdrive [-r remote] …`.
-local -a subcmds=(
-    'remotes:list OAuth clients in 1Password and their state'
-    'client:scaffold an OAuth client item in 1Password'
-    'login:create or update the remote from 1Password and authorise'
-    'logout:forget the remote and its token'
-    'status:remote, scope and quota'
-    'ls:list a Drive folder'
-    'up:upload files or folders'
-    'down:download files or folders'
-    'rm:delete from Drive'
-    'mkdir:create a Drive folder'
-    'mv:move or rename on Drive'
-    'du:size of a Drive folder'
-    'link:anyone-with-the-link URL'
-)
+# Completion hook for `x gdrive [-r remote] …`: the remote after -r, and what
+# follows a subcommand (x completes the subcommands, from the Usage block).
+if [[ ${words[CURRENT-1]} == -r ]]; then
+    local -a remotes=(${${(f)"$(rclone listremotes 2>/dev/null)"}%:})
+    _describe 'remote' remotes
+    return
+fi
 
 # Skip a leading `-r <remote>`; s is the index of the subcommand word.
 local s=3
-if [[ ${words[3]} == -r ]]; then
-    if (( CURRENT == 4 )); then
-        local -a remotes=(${${(f)"$(rclone listremotes 2>/dev/null)"}%:})
-        _describe 'remote' remotes
-        return
-    fi
-    s=5
-fi
-
-if (( CURRENT == 3 )); then
-    _describe 'subcommand' subcmds -- '(-r)'
-    return
-elif (( CURRENT == s )); then
-    _describe 'subcommand' subcmds
-    return
-fi
+[[ ${words[3]} == -r ]] && s=5
 
 # _arguments counts arguments from words[2]: drop everything before the
 # subcommand so it is words[1] and `1:` means its first argument.
@@ -42,16 +18,16 @@ shift $(( s - 1 )) words
 
 case $sub in
     client)
-        if (( CURRENT == 2 )); then
-            compadd new
-        elif [[ ${words[2]} == new ]]; then
+        if [[ ${words[2]} == new ]]; then
             shift words
             (( CURRENT-- ))
             _arguments '--scope[OAuth scope]:scope:(drive.file drive drive.readonly drive.appfolder drive.metadata.readonly)' '--use-for[what the remote is for]:text:' '1:name:_guard "^-*" "name"'
         fi
         ;;
-    up)     _arguments '-d[Drive folder to upload into]:folder:' '--move[delete local copies after upload]' '*:local file:_files' ;;
+    up)     _arguments '-d[Drive folder to upload into]:folder:' '--move[delete local copies after upload]' '--bare[progress bar only, no heading lines]' '*:local file:_files' ;;
     down)   _arguments '-C[local folder to download into]:directory:_files -/' '*:Drive path:' ;;
     ls)     _arguments '-R[recursive]' '1:Drive folder:_guard "^-*" "Drive folder"' ;;
     link)   _arguments '--unlink[remove the public link]' '1:Drive path:_guard "^-*" "Drive path"' ;;
+    rm|mkdir|mv|du|cat|rcat|sha256|exists|lsjson)
+            _message 'Drive path (relative to the Drive root)' ;;
 esac

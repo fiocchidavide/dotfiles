@@ -1,14 +1,14 @@
 ## extract a page range from a PDF with mutool
 #@needs mutool
+# Usage: x extrct <input.pdf> <page-range> [output.pdf]
+#
+# Writes those pages as a new PDF (default <input>_pages_<range>.pdf).
+# page-range examples: 1, 1-5, 1,3-5,8
+
 emulate -L zsh
-if [[ $1 == (-h|--help) ]]; then
-    _x_usage -o "x extrct <input.pdf> <page-range> [output.pdf]" "page-range examples: 1, 1-5, 1,3-5,8"
-    return 0
-fi
 if [[ -z "$1" || -z "$2" ]]; then
-    _x_usage "x extrct <input.pdf> <page-range> [output.pdf]" \
-        "page-range examples: 1, 1-5, 1,3-5,8"
-    return 1
+    _x_help extrct
+    return
 fi
 local input="$1"
 local pages="$2"

@@ -32,5 +32,5 @@ cask "iina"           # x watch iina
 # --- not available via Homebrew (install manually) ---
 #   webtorrent-cli   ->  pnpm add -g webtorrent-cli   (x watch)
 #   tailscale        ->  the macOS app ships the CLI   (x serve)
-#   oh-my-zsh        ->  sh -c "$(curl -fsSL https://install.ohmyz.sh/)"
-#   zsh plugins      ->  fzf-tab, zsh-syntax-highlighting, zsh-autosuggestions
+#   oh-my-zsh and its plugins (fzf-tab, zsh-syntax-highlighting,
+#   zsh-autosuggestions) -> make omz, which keeps this repo's ~/.zshrc

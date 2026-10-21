@@ -24,11 +24,17 @@ jobs:
             zsh/.zprofile
             zsh/.zshenv
             zsh/.zshrc
+            .github/scripts/*.zsh
           )
           for f in "${files[@]}"; do
             echo "zsh -n $f"
             zsh -n "$f"
           done
+
+      # Every command and subcommand: help, errors, completion, and the code
+      # agreeing with its Usage block.
+      - name: Check every x command is discoverable
+        run: zsh -f .github/scripts/discover.zsh
 
       - name: Syntax-check the share script and Python helper
         run: |

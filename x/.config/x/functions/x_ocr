@@ -1,9 +1,13 @@
 ## run $CODE_DIR/ocr/infinity_parser on a file
 #@needs uv
+# Usage: x ocr <file> [extra args...]
+#
+# OCRs the file with infinity_parser ($CODE_DIR/ocr); extra arguments go to it.
+
 emulate -L zsh
 if [[ -z "$1" ]]; then
-    _x_usage "x ocr <file> [extra args...]"
-    return 1
+    _x_help ocr
+    return
 fi
 local dir=${CODE_DIR:-$HOME/Code}/ocr
 if [[ ! -f $dir/infinity_parser.py ]]; then

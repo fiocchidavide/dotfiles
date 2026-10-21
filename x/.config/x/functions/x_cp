@@ -1,13 +1,13 @@
 ## copy the absolute path of a file to clipboard
 #@needs pbcopy
+# Usage: x cp <file>
+#
+# Copies the file's absolute path (symlinks resolved) to the clipboard.
+
 emulate -L zsh
-if [[ $1 == (-h|--help) ]]; then
-    _x_usage -o "x copypath <file>"
-    return 0
-fi
 if [[ -z "$1" ]]; then
-    _x_usage "x copypath <file>"
-    return 1
+    _x_help cp
+    return
 fi
 if [[ ! -e "$1" ]]; then
     _x_err "No such file or directory: $1"

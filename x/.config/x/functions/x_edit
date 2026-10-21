@@ -1,11 +1,11 @@
 ## open a command's source in $EDITOR, then reload
+# Usage: x edit <name>
+#
+# Opens functions/x_<name> in $EDITOR, then reloads x.
+
 emulate -L zsh
-if [[ $1 == (-h|--help) ]]; then
-    _x_usage -o "x edit <name>" "open functions/x_<name> in \$EDITOR, then reload"
-    return 0
-fi
 local name="$1"
-[[ -z $name ]] && { _x_usage "x edit <name>"; return 1; }
+[[ -z $name ]] && { _x_help edit; return }
 local file="$X_FUNCTIONS_DIR/x_${name}"
 [[ -e $file ]] || { _x_err "No command '$name' (create it with: x new $name)"; return 1; }
 ${=EDITOR:-vi} "$file"     # ${=…}: EDITOR="code --wait" works too

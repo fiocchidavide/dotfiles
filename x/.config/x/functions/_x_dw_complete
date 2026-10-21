@@ -1,0 +1,2 @@
+# Completion hook for `x dw …`.
+(( CURRENT == 3 )) && _urls

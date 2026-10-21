@@ -1,8 +1,13 @@
 ## derive a per-archive passphrase from a vault master key (HKDF-SHA256)
 #@needs op uv
-# Usage:
-#   x kdf [-P purpose] [-m -] <keyid> <name>   print the passphrase
-#   x kdf --selftest                         check HKDF against RFC 5869
+# Usage: x kdf [-P purpose] [-m -] <keyid> <name>
+#
+#   x kdf <keyid> <name>    print the passphrase for archive <name>
+#   x kdf --selftest        check HKDF against RFC 5869
+#
+# Options:
+#   -P purpose  derive for this purpose (default: file)
+#   -m -        read the master key from stdin instead of 1Password
 #
 # passphrase = base64url(HKDF-SHA256(ikm = master key <keyid>,
 #                                    salt = "x-vault/v1",
@@ -10,9 +15,10 @@
 # purpose defaults to "file", which is what x seal and x vault use (the vault's
 # index is just an archive named <keyid>.index); other purposes give other keys.
 #
-# The master key is read from 1Password (item <keyid>, field "key", in vault
-# X_VAULT_OP_VAULT) and handed to the derivation on stdin, never on argv.
-# With -m - it is read from stdin instead: a recovery path without op.
+# The master key comes from 1Password (item <keyid>, field "key", in vault
+# X_VAULT_OP_VAULT); -m - takes it from stdin instead, to recover without op.
+
+# The master key reaches the derivation on stdin, never on argv.
 
 emulate -L zsh
 setopt extended_glob
@@ -28,9 +34,8 @@ if (( $#o_selftest )); then
 fi
 
 if (( $#f_help || $# != 2 )); then
-    _x_usage ${f_help:+-o} "x kdf [-P purpose] [-m -] <keyid> <name>" \
-        "x kdf --selftest    check HKDF against RFC 5869"
-    return $(( ! $#f_help ))
+    _x_help ${f_help:+-o} kdf
+    return
 fi
 # Secrets are only ever read from stdin: -m takes "-", nothing else.
 if (( ${#o_master} )) && [[ ${o_master[2]} != - ]]; then

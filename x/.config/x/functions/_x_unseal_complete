@@ -1,0 +1,15 @@
+# Completion hook for `x unseal …`: its options, then the archive.
+# _arguments takes words[1] for the command: drop the `x`.
+shift words
+(( CURRENT-- ))
+_arguments \
+    '-C[folder to extract into]:directory:_files -/' \
+    '--name[derive the key from this archive name]:name:' \
+    '-p[passphrase on stdin]:source:(-)' \
+    '-P[prompt for the passphrase]' \
+    '-O[tar stream to stdout]' \
+    '--check[decrypt and hash, no output]' \
+    '--size[bytes, for the progress bar on stdin]:bytes:' \
+    '-z[compression (default zstd)]:compression:(zstd gzip)' \
+    '-q[no progress output]' \
+    '*:archive:_files -g "*.age(-.)"'

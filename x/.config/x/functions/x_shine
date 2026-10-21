@@ -1,13 +1,13 @@
 ## set monitor brightness (0-100)
 #@needs m1ddc
+# Usage: x shine <0-100>
+#
+# Sets the monitor's brightness.
+
 emulate -L zsh
-# Anything else (even --help) would reach m1ddc as brightness 0.
-if [[ $1 == (-h|--help|help) ]]; then
-    _x_usage -o "x shine <0-100>"
-    return 0
-fi
+# Anything else would reach m1ddc as brightness 0.
 if [[ $1 != <-> ]] || (( 10#$1 > 100 )); then
-    _x_usage "x shine <0-100>"
-    return 1
+    _x_help shine
+    return
 fi
 m1ddc set luminance "$1"

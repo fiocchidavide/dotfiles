@@ -1,21 +1,28 @@
 ## decrypt an archive made by x seal (extract, stream, or just verify)
 #@needs age age-plugin-batchpass zstd uv op
-# Usage:
-#   x unseal [key] [-C dir] [-q] <file.age | ->     extract into dir (default .)
-#   x unseal [key] -O <file.age | ->                tar stream to stdout
-#   x unseal [key] --check [sha256] <file.age | ->  decrypt and hash, no output
+# Usage: x unseal [key] [options] <file.age | ->
+#
+#   x unseal <file.age | ->                   extract into . (or -C dir)
+#   x unseal -O <file.age | ->                tar stream to stdout
+#   x unseal --check [sha256] <file.age | ->  decrypt and hash, no output
 #
 # Key (one of):
-#   (default)   derive from the archive name: <keyid>.<…>.age -> x kdf
+#   (default)   derive from the archive name: <keyid>.<…>.age, via x kdf
 #   --name N    derive from N instead (an archive renamed after sealing)
 #   -p -        passphrase on stdin (only when the archive is a file)
 #   -P          prompt for the passphrase on the terminal
 #
-# -z gzip reads a gzip archive (x seal -z gzip / --random); zstd is the default.
+# Options:
+#   -C dir      extract into dir (default .)
+#   -z gzip     read a gzip archive (x seal -z gzip / --random); zstd is the default
+#   --size N    the archive's size in bytes, for the progress bar on stdin
+#   -q          no progress output
 #
+# Nothing existing is overwritten: if a name is taken, the archive's contents
+# go into <name>.unsealed (or .unsealed-2, …) instead.
+
 # Extraction goes into a fresh folder next to the destination first, then
-# moves into place; nothing existing is overwritten. bsdtar already refuses
-# absolute paths and `..` entries.
+# moves into place. bsdtar already refuses absolute paths and `..` entries.
 
 emulate -L zsh
 setopt extended_glob pipe_fail
@@ -30,10 +37,8 @@ if (( $#f_check && $# == 2 )); then
     expect=$1; shift
 fi
 if (( $#f_help || $# != 1 )); then
-    _x_usage ${f_help:+-o} "x unseal [--name N | -p - | -P] [-C dir] [-q] <file.age | ->" \
-        "x unseal … -O <file.age | ->                 tar stream to stdout" \
-        "x unseal … --check [sha256] <file.age | ->   verify only"
-    return $(( ! $#f_help ))
+    _x_help ${f_help:+-o} unseal
+    return
 fi
 # Secrets are only ever read from stdin: -p takes "-", nothing else.
 if (( ${#o_pass} )) && [[ ${o_pass[2]} != - ]]; then
@@ -47,6 +52,7 @@ if [[ $src != - && ! -f $src ]]; then
 fi
 
 local pass name=${o_name[2]:-${${src:t}%.age}}
+[[ $src == - && -z ${o_name[2]} ]] && name=archive
 if [[ ${o_pass[2]} == - ]]; then
     if [[ $src == - ]]; then
         _x_err "-p - needs the archive as a file, stdin is taken."

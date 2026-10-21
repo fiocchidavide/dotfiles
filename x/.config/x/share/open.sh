@@ -58,7 +58,8 @@ main() {
     done
 
     # --- 1. find the file -----------------------------------------------------------
-    # Browsers rename repeat downloads ("share-x (1).age"), so take the newest match.
+    # Browsers rename repeat downloads ("share-x (1).age"): the exact name wins,
+    # else the newest renamed copy.
     stem=${want%.age}
     for dir in "$PWD" "$HOME/Downloads"; do
         [ -f "$dir/$want" ] && { file="$dir/$want"; break; }
@@ -150,7 +151,8 @@ main() {
     [ -w "$dest" ] || { sudo=sudo; step "$dest needs administrator rights (sudo)"; }
     for item in "${items[@]}"; do
         if present "$dest/$item"; then
-            $sudo chmod -R u+w "$dest/$item" 2>/dev/null || true
+            # chmod -R follows a symlink operand; only the link itself goes.
+            [ -L "$dest/$item" ] || $sudo chmod -R u+w "$dest/$item" 2>/dev/null || true
             $sudo rm -rf "$dest/$item"
         fi
         $sudo mv "$stage/$item" "$dest/$item"

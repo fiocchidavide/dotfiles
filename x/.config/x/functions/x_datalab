@@ -1,15 +1,20 @@
 ## convert documents with Datalab (accurate, all output formats)
 #@needs op uv
-# Usage:
-#   x datalab convert [-o outdir] [-p page_range] FILE...
+# Usage: x datalab <command> …
+#
+#   x datalab convert [-o outdir] [-p page_range] <file>…
+#                     convert each file (-o: default ./output; -p: e.g. 0-2,4,
+#                     default all pages)
 #
 # Accurate mode, paginated, page headers and footers kept. Saves every format
 # per file into <outdir>/<name>/: .md, .html, .json, .chunks.json,
 # .metadata.json and the extracted images (outdir defaults to ./output).
 # Shows elapsed time while each file converts; the API reports no percentage.
 #
-# The API key reference comes from ~/.config/x/config.zsh
-# (X_DATALAB_API_KEY_REF) and is read from 1Password per call, never exported.
+# The API key comes from 1Password, through X_DATALAB_API_KEY_REF in
+# ~/.config/x/config.zsh.
+
+# The key is read from 1Password per call and never exported.
 
 emulate -L zsh
 
@@ -17,8 +22,8 @@ _x_datalab_convert() {
     local -a o_out o_pages
     zparseopts -D -E -F -- o:=o_out p:=o_pages || return 1
     if (( ! $# )); then
-        _x_usage "x datalab convert [-o outdir] [-p page_range] FILE..."
-        return 1
+        _x_help datalab convert
+        return
     fi
     _x_need_config X_DATALAB_API_KEY_REF || return
 
@@ -99,12 +104,12 @@ class Ticker:
 
 client = DatalabClient()
 files = [Path(a) for a in sys.argv[1:]]
-# One output folder per input; inputs sharing a name get -2, -3, … rather
-# than overwriting each other.
+# One new output folder per input; a name that's taken, by an earlier run or
+# another input, gets -2, -3, … rather than mixing with what's there.
 out, dests = Path(os.environ["X_DATALAB_OUT"]), []
 for f in files:
     dest, n = out / f.stem, 1
-    while dest in dests:
+    while dest in dests or dest.exists():
         n += 1
         dest = out / f"{f.stem}-{n}"
     dests.append(dest)
@@ -137,14 +142,5 @@ PY
 
 case "${1:-}" in
     convert)   shift; _x_datalab_convert "$@" ;;
-    ""|-h|--help|help)
-        _x_usage ${1:+-o} "x datalab convert [-o outdir] [-p page_range] FILE..." \
-            "-o outdir      where results go (default ./output)" \
-            "-p page_range  e.g. 0-2,4 (default: all pages)"
-        [[ -n "${1:-}" ]] || return 1
-        ;;
-    *)
-        _x_err "Unknown subcommand '$1'. Try: x datalab convert"
-        return 1
-        ;;
+    *)         _x_help datalab ;;
 esac

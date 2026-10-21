@@ -1,0 +1,2 @@
+# Completion hook for `x shine …`.
+(( CURRENT == 3 )) && _message 'brightness, 0-100'

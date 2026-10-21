@@ -1,0 +1,2 @@
+# Completion hook for `x fastdw …`: the URL; aria2c's own flags pass through.
+(( CURRENT == 3 )) && _urls

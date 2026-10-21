@@ -1,39 +1,50 @@
 ## encrypted backups on Google Drive: put, push, ls, get, rekey, share
 #@needs op rclone age age-plugin-batchpass zstd uv jq git
 #@needs-optional fzf
-# Usage:
+# Usage: x vault <command> …
+#
 #   x vault init                         settings, 1Password vault, first key
-#   x vault put [--direct] <path>…       seal into staging (--direct: straight to Drive)
-#   x vault push [--all] [-n] [pattern…] upload staged archives (pick in fzf when
-#                                        several), offer to delete originals
+#   x vault put [--direct] [-k keyid] <path>…
+#                                        seal into staging (--direct: straight to
+#                                        Drive; -k: not the current master key)
+#   x vault push [--all] [-n] [pattern…]
+#                                        upload staged archives (pick in fzf when
+#                                        several; -n: only list), offer to delete
+#                                        originals
 #   x vault ls [-l] [pattern]            archives by original path (-l: with names)
-#   x vault get [-C dir] <archive|path>  download and extract
+#   x vault get [-C dir] <archive|path|pattern>
+#                                        download and extract
 #   x vault key <archive|path>           print one archive's passphrase
 #   x vault keys                         list master keys with status and usage
-#   x vault keys new [--use] | use <id> | retire <id> [--compromised]
-#   x vault rekey [selectors] [--to id] [-n] [-i]
+#   x vault keys new [--use]             create a master key (--use: make it current)
+#   x vault keys use <id>                make a key the current one
+#   x vault keys retire <id> [--compromised]
+#                                        mark a key retired (or compromised)
+#   x vault rekey [selectors] [--to id] [-n] [-i] [archive|path…]
 #                                        re-encrypt archives, Drive to Drive
+#                                        (-n: dry run, -i: pick in fzf). Selectors,
+#                                        combined with AND: --from <id>, --status
+#                                        retired|compromised, --match <glob on
+#                                        path>, --before <YYYY-MM-DD>, --larger or
+#                                        --smaller <size, e.g. 2G>, or --all
 #   x vault rm [-n] <archive|path|pattern>…
 #                                        delete archives from Drive and the index
 #   x vault check                        compare the index with Drive
 #   x vault share [--to DIR] <path>      one-off encrypted share + message for a friend
 #
-# Rekey selectors (combined with AND): --from <id>, --status retired|compromised,
-# --match <glob on path>, --before <YYYY-MM-DD>, --larger/--smaller <size, e.g. 2G>,
-# explicit archive names or paths, or --all.
-#
-# Keys live in their own 1Password vault (X_VAULT_OP_VAULT): one item per
-# master key (title = key id; fields key, created, status) and an item
-# "settings" whose field "current" names the key for new archives. Archives
-# are <keyid>.<random>.age in X_VAULT_REMOTE_DIR on the x gdrive remote
-# "vault" (its own OAuth client, scope drive.file), plus
-# an encrypted index <keyid>.index.age mapping them to original paths. See
-# the x README for the cryptography and for recovery with stock tools.
+# Master keys live in the 1Password vault X_VAULT_OP_VAULT. Archives go to
+# X_VAULT_REMOTE_DIR on the x gdrive remote "vault" (set it up with
+# x gdrive -r vault login), with an encrypted index of their original paths.
+# The x README covers the cryptography and recovery with stock tools.
+
+# In 1Password: one item per master key (title = key id; fields key,
+# created, status) and an item "settings" whose field "current" names the
+# key for new archives. On Drive: <keyid>.<random>.age archives and the index
+# <keyid>.index.age; the remote has its own OAuth client, scope drive.file.
 
 emulate -L zsh
 setopt extended_glob pipe_fail
 
-local usage="x vault init | put | push | ls | get | key | keys | rekey | rm | check | share"
 local state=${XDG_STATE_HOME:-$HOME/.local/state}/x/vault
 local index=$state/index.jsonl
 local xstream=(uv run --quiet --no-project python -I $X_DIR/lib/xstream.py)
@@ -53,8 +64,6 @@ _x_vault_config() {
     S=${X_VAULT_STAGING/#\~/$HOME}
     mkdir -p $S $state/refs
 }
-
-_x_vault_rand() { LC_ALL=C tr -dc 'a-z2-7' </dev/urandom | head -c $1 }
 
 # The vault always talks to Drive through its own remote and OAuth client
 # (1Password item "vault" in X_GDRIVE_OP_VAULT), whatever x gdrive's default.
@@ -97,7 +106,7 @@ _x_vault_init() {
     if op item get settings --vault $X_VAULT_OP_VAULT >/dev/null 2>&1; then
         _x_vault_current && _x_ok "Current key: $xv_current"
     else
-        _x_vault_key_new --use || return
+        _x_vault_keys_new --use || return
     fi
 
     _x_step "Google Drive folder '$R'"
@@ -111,17 +120,17 @@ _x_vault_init() {
 
 # --- keys ----------------------------------------------------------------------
 
-_x_vault_key_new() {
+_x_vault_keys_new() {
     local -a f_use
     zparseopts -D -E -F -- -use=f_use || return 1
     local existing id
     existing=$(_x_spin -t "Listing keys" _x_vault_keys_json) || return
     repeat 10; do
-        id=$(_x_vault_rand 6)
+        id=$(_x_rand_b32 6)
         grep -q "\"$id\"" <<<$existing || break
     done
     # The key goes to op inside a JSON template on stdin, never on argv.
-    head -c 32 /dev/urandom | base64 | tr '+/' '-_' | tr -d '=\n' |
+    _x_rand_key |
         jq -Rn --arg id $id --arg created $(date +%Y-%m-%d) '{
             title: $id, category: "SECURE_NOTE",
             fields: [
@@ -134,16 +143,16 @@ _x_vault_key_new() {
         _x_spin "Creating key $id in 1Password" \
             op item create --vault $X_VAULT_OP_VAULT - >/dev/null || return
     if (( $#f_use )); then
-        _x_vault_key_use $id || return
+        _x_vault_keys_use $id || return
     else
         _x_info "Make it current with: x vault keys use $id"
     fi
 }
 
-_x_vault_key_use() {
+_x_vault_keys_use() {
     if (( $# != 1 )); then
-        _x_usage "x vault keys use <id>"
-        return 1
+        _x_help vault keys use
+        return
     fi
     local id=$1
     if [[ $id != [a-z2-7](#c6) ]] || ! op item get $id --vault $X_VAULT_OP_VAULT >/dev/null 2>&1; then
@@ -161,14 +170,14 @@ _x_vault_key_use() {
     xv_current=$id
 }
 
-_x_vault_key_retire() {
+_x_vault_keys_retire() {
     local -a f_comp
     zparseopts -D -E -F -- -compromised=f_comp || return 1
     local id=$1 st=retired
     (( $#f_comp )) && st=compromised
     if (( $# != 1 )); then
-        _x_usage "x vault keys retire <id> [--compromised]"
-        return 1
+        _x_help vault keys retire
+        return
     fi
     if [[ $id != [a-z2-7](#c6) ]] || ! op item get $id --vault $X_VAULT_OP_VAULT >/dev/null 2>&1; then
         _x_err "No key '$id' in $X_VAULT_OP_VAULT."
@@ -192,11 +201,11 @@ _x_vault_keys() {
     local cmd=${1:-}
     (( $# )) && shift
     case $cmd in
-        new)    _x_vault_key_new "$@"; return ;;
-        use)    _x_vault_key_use "$@"; return ;;
-        retire) _x_vault_key_retire "$@"; return ;;
+        new)    _x_vault_keys_new "$@"; return ;;
+        use)    _x_vault_keys_use "$@"; return ;;
+        retire) _x_vault_keys_retire "$@"; return ;;
         "")     ;;
-        *)      _x_err "Unknown: x vault keys $cmd (new | use | retire)"; return 1 ;;
+        *)      _x_help vault keys; return ;;
     esac
     local keys current
     keys=$(_x_spin -t "Reading keys from 1Password" _x_vault_keys_json) || return
@@ -349,8 +358,8 @@ _x_vault_put() {
     local -a f_direct o_key
     zparseopts -D -E -F -- -direct=f_direct k:=o_key || return 1
     if (( ! $# )); then
-        _x_usage "x vault put [--direct] [-k keyid] <path>…"
-        return 1
+        _x_help vault put
+        return
     fi
     local id=${o_key[2]}
     if [[ -z $id ]]; then
@@ -369,7 +378,7 @@ _x_vault_put() {
             (( failed++ ))
             continue
         fi
-        name=$id.$(_x_vault_rand 26)
+        name=$id.$(_x_rand_b32 26)
         _x_step "[$i/$#] ${src:a:t}"
         # A heads-up, from the local index cache and staging (no Drive call).
         local -a earlier=($index(N) $S/*.json(N))
@@ -562,8 +571,8 @@ _x_vault_get() {
     local -a o_dir
     zparseopts -D -E -F -- C:=o_dir || return 1
     if (( $# != 1 )); then
-        _x_usage "x vault get [-C dir] <archive | path | pattern>"
-        return 1
+        _x_help vault get
+        return
     fi
     _x_vault_pull || return
     local name entry
@@ -577,8 +586,8 @@ _x_vault_get() {
 
 _x_vault_key() {
     if (( $# != 1 )); then
-        _x_usage "x vault key <archive | path>"
-        return 1
+        _x_help vault key
+        return
     fi
     local name=${${1:t}%.age}
     if [[ $name != [a-z2-7](#c6).[a-z2-7](#c26) ]]; then
@@ -610,9 +619,7 @@ _x_vault_rekey() {
         -before:=o_before -larger:=o_larger -smaller:=o_smaller -to:=o_to \
         -all=f_all n=f_dry i=f_pick || return 1
     if (( ! ($#o_from + $#o_status + $#o_match + $#o_before + $#o_larger + $#o_smaller + $#f_all + $#f_pick + $#) )); then
-        _x_usage "x vault rekey [selectors] [--to id] [-n] [-i] [archive|path…]" \
-            "selectors: --from id, --status s, --match glob, --before date," \
-            "           --larger size, --smaller size, --all"
+        _x_help vault rekey
         _x_info "Say which archives: rekeying everything needs --all."
         return 1
     fi
@@ -734,7 +741,7 @@ _x_vault_rekey_one() {
     local old=$1 to=$2 i=$3 n=$4
     local entry new old_pass new_pass tmp ofd nfd rc=0
     entry=$(_x_vault_entry $old)
-    new=$to.$(_x_vault_rand 26)
+    new=$to.$(_x_rand_b32 26)
     _x_vault_master ${old%%.*} && _x_vault_master $to || return
     old_pass=$(print -r -- ${masters[${old%%.*}]} | x_kdf -m - ${old%%.*} $old) || return
     new_pass=$(print -r -- ${masters[$to]} | x_kdf -m - $to $new) || return
@@ -782,8 +789,8 @@ _x_vault_rm() {
     local -a f_dry
     zparseopts -D -E -F -- n=f_dry || return 1
     if (( ! $# )); then
-        _x_usage "x vault rm [-n] <archive | path | pattern>…"
-        return 1
+        _x_help vault rm
+        return
     fi
     _x_vault_pull || return
     local a n
@@ -868,8 +875,8 @@ _x_vault_share() {
     local -a o_to
     zparseopts -D -E -F -- -to:=o_to || return 1
     if (( $# != 1 )) || [[ ! -e $1 ]]; then
-        _x_usage "x vault share [--to DIR] <path>"
-        return 1
+        _x_help vault share
+        return
     fi
     # As x seal records it: a symlink means what it points to.
     local src=${1%/}
@@ -891,8 +898,8 @@ _x_vault_share() {
     origin=$(git -C $repo remote get-url origin)
     origin=${${${origin%.git}#git@github.com:}#https://github.com/}
 
-    local name=share-$(_x_vault_rand 16) pass tmp rc=0 url uploaded=0
-    pass=$(head -c 32 /dev/urandom | base64 | tr '+/' '-_' | tr -d '=\n')
+    local name=share-$(_x_rand_b32 16) pass tmp rc=0 url uploaded=0
+    pass=$(_x_rand_key)
     tmp=$(mktemp -d "${TMPDIR:-/tmp}/xvault.XXXXXX") || return
     {
         print -r -- $pass | x_seal -p - -z gzip --portable --name $name \
@@ -922,12 +929,10 @@ curl -fsSL https://raw.githubusercontent.com/$origin/$sha/$script | bash -s -- $
 
 # --- dispatch ------------------------------------------------------------------
 
+# Help and unknown subcommands are x's (see _x_usage_info): only real ones
+# get here, so settings are asked for only when they're needed.
 local cmd=${1:-}
 (( $# )) && shift
-case $cmd in
-    "")               _x_help vault; return ;;
-    -h|--help|help)   _x_help vault asked; return ;;
-esac
 _x_vault_config || return
 case $cmd in
     init)   _x_vault_init "$@" ;;
@@ -941,9 +946,5 @@ case $cmd in
     check)  _x_vault_check "$@" ;;
     rm)     _x_vault_rm "$@" ;;
     share)  _x_vault_share "$@" ;;
-    *)
-        _x_err "Unknown subcommand '$cmd'."
-        _x_usage $usage
-        return 1
-        ;;
+    *)      _x_help vault; return ;;
 esac

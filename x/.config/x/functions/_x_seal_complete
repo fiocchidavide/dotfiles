@@ -1,0 +1,17 @@
+# Completion hook for `x seal …`: its options, then the file or folder.
+# _arguments takes words[1] for the command: drop the `x`.
+shift words
+(( CURRENT-- ))
+_arguments \
+    '-k[master key to derive from]:key id:' \
+    '--name[archive name to derive under]:name:' \
+    '-o[output file, or - for stdout]:output file:_files' \
+    '-L[zstd level (default 9)]:level:(3 9 19)' \
+    '-p[passphrase on stdin]:source:(-)' \
+    '--random[fresh random key, printed]' \
+    '-z[compression (default zstd)]:compression:(zstd gzip)' \
+    '--no-pad[skip Padmé padding]' \
+    '--portable[leave out macOS metadata and xattrs]' \
+    '--meta[write a JSON record of hashes and sizes]:file:_files' \
+    '-q[no progress output]' \
+    '1:file or folder:_files'

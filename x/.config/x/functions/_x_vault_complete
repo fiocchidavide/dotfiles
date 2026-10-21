@@ -1,22 +1,5 @@
-# Completion hook for `x vault …`; words[3] is the subcommand.
-local -a subcmds=(
-    'init:settings, 1Password vault and first key'
-    'put:seal files or folders into staging (--direct: straight to Drive)'
-    'push:upload staged archives, offer to delete originals'
-    'ls:list archives by original path'
-    'get:download and extract an archive'
-    'key:print one archive'"'"'s passphrase'
-    'keys:list, create, switch or retire master keys'
-    'rekey:re-encrypt archives under another key'
-    'rm:delete archives from Drive and the index'
-    'check:compare the index with Drive'
-    'share:one-off encrypted share for a friend'
-)
-
-if (( CURRENT == 3 )); then
-    _describe 'subcommand' subcmds
-    return
-fi
+# Completion hook for what follows `x vault <subcommand>` (x completes the
+# subcommands, from the Usage block); words[3] is the subcommand.
 
 # _arguments counts arguments from words[2]: drop `x vault` so the subcommand
 # is words[1] and `1:` means its first argument.
@@ -31,11 +14,9 @@ case $sub in
     ls)    _arguments '-l[show archive names]' '1:pattern:_guard "^-*" "pattern"' ;;
     rm)    _arguments '-n[dry run]' '*:archive or path:' ;;
     share) _arguments '--to[where the friend'"'"'s copy goes]:directory:' '1:file or folder:_files' ;;
+    key)   _arguments '1:archive or path:_guard "^-*" "archive or path"' ;;
     keys)
-        if (( CURRENT == 2 )); then
-            local -a keycmds=('new:create a master key' 'use:make a key current' 'retire:mark a key retired or compromised')
-            _describe 'keys subcommand' keycmds
-        elif [[ ${words[2]} == new ]]; then
+        if [[ ${words[2]} == new ]]; then
             _arguments '--use[make it the current key]'
         elif [[ ${words[2]} == use ]]; then
             shift words

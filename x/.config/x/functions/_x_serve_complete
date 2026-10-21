@@ -1,20 +1,10 @@
-# Completion hook for `x serve …`; words[3] is the target.
-local -a targets=(
-    "webdav:share a directory as WebDAV (default ${X_WEBDAV_DIR:-~/WebDAV})"
-    'paseo:front the local paseo daemon on :6767'
-    'off:stop one share, or all of them'
-)
-
-if (( CURRENT == 3 )); then
-    _describe 'target' targets
-    return
-fi
+# Completion hook for what follows `x serve <target>` (x completes the target).
 
 # `x serve webdav <TAB>` -> the directory to share
-[[ ${words[3]} == webdav && CURRENT == 4 ]] && _files -/
+[[ ${words[3]} == webdav ]] && (( CURRENT == 4 )) && _files -/
 
 # `x serve off <TAB>` -> which share to stop
-if [[ ${words[3]} == off && CURRENT == 4 ]]; then
-    local -a shares=('webdav:stop the WebDAV share' 'paseo:stop the paseo share')
+if [[ ${words[3]} == (off|stop|down|d) ]] && (( CURRENT == 4 )); then
+    local -a shares=('webdav:stop the WebDAV share' 'paseo:stop the paseo share' 'all:stop both')
     _describe 'share' shares
 fi

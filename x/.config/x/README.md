@@ -1,7 +1,8 @@
 # `x` — personal shell command dispatcher
 
 A tiny, lazy-loading subcommand dispatcher for personal zsh helpers.
-Type `x` to list commands, `x <name> [args]` to run one, `x <TAB>` to complete.
+Type `x` to list commands, `x <name> [args]` to run one, `x <TAB>` to complete,
+and `x <name> -h` (or `x help <name> [subcommand]`) for a command's help.
 
 Self-management (built-in commands):
 
@@ -56,26 +57,84 @@ the terminal and appends it to `config.zsh`, so it's asked only once.
 
 ## Adding a command
 
+`x new <name>` scaffolds all of this.
+
 1. Create `functions/x_<name>`. Its contents are the command **body** — no
    `x_<name>() { … }` wrapper (zsh autoload convention).
 2. Make the first `## ` line its one-line description; it feeds `x` help and
    tab-completion. No registry to maintain.
-3. Optional: declare external dependencies with `#@needs <bin>…` (required)
+3. Write a `# Usage:` comment block. The Usage line itself gives the
+   command's shape (`# Usage: x watch [player] [--ram[=GiB]] <url>`). Below
+   it, after a `#` line: one `#   x <name> …` line per form or subcommand (3
+   spaces in), then 2+ spaces and what it does, or the description on the
+   more indented lines below; option lines (`#   -k keyid    …`) under an
+   `# Options:` heading; then prose. It ends at the first blank line.
+   It's for using the command: what it does, what it reads, what to expect.
+   How it works (pipelines, why a workaround exists) goes in comments after
+   that blank line, where help never shows it.
+4. Optional: declare external dependencies with `#@needs <bin>…` (required)
    and/or `#@needs-optional <bin>…` lines. `x doctor` checks them. Add the
    matching Homebrew formula/cask to `../../../Brewfile`.
-4. Optional: add `<name>` to the `_files` case in `_x` (inside
-   `x.zsh`) if it takes a path argument, or add `functions/_x_<name>_complete`
-   for richer sub-argument completion (see `_x_ramdisk_complete`).
+5. Complete what follows the command and its subcommands: add `<name>` to the
+   `_files` case in `_x` (inside `x.zsh`) if it takes a path, or add
+   `functions/_x_<name>_complete` (see `_x_vault_complete`).
 
 Example — `functions/x_hello`:
 
 ```zsh
 ## say hello to someone
 #@needs cowsay
+# Usage: x hello [name]
+#
+# Greets name (default: world).
+
 cowsay "Hi, ${1:-world}!"
 ```
 
-Then `x hello`, `x` (lists it), `x he<TAB>` (completes it).
+Then `x hello`, `x` (lists it), `x he<TAB>` (completes it), `x hello -h`.
+
+### The Usage block is the interface
+
+Plain words right after `x <name>` in a synopsis are subcommands, and
+`off|stop` names one together with its aliases:
+
+```zsh
+# Usage: x vault <command> …
+#
+#   x vault keys                list master keys
+#   x vault keys new [--use]    create one (--use: make it current)
+#   x vault rm [-n] <archive>…
+#                               delete archives
+```
+
+`x vault -h` renders it like the `x` command list: the shape first, then the
+forms in aligned columns with their descriptions in grey, then the prose.
+
+From that block, `x` itself does what every command would otherwise do by
+hand, the same way for all of them:
+
+- `x vault -h`, `--help`, `x vault help` and `x help vault` print the block;
+  `x vault keys --help` prints only the `x vault keys …` lines. On stdout,
+  status 0.
+- A missing subcommand (`x ramdisk`) prints the block on stderr, status 1,
+  unless a synopsis shows the bare form (`x vault keys`). An unknown one
+  (`x ramdisk nope`) is an error before the command runs, so nothing is asked
+  for or started.
+- `x vault <TAB>` and `x vault keys <TAB>` complete the subcommands, with
+  their descriptions. What follows them is up to the command's hook.
+
+So a command handles none of that. On misuse it shows its help with
+`_x_help <name> [subcommand…]; return`, and a command parsing `-h` among
+other options (`x seal -q -h`) uses `_x_help -o <name>`.
+
+`.github/scripts/discover.zsh` (in CI) holds every command to this: for the
+command and each subcommand its block names, help works all four ways and
+runs nothing; missing and unknown subcommands fail cleanly; completion offers
+the subcommands, every documented option and something for each argument;
+every option the code parses with `zparseopts` is documented; and the
+dispatch `case` handles exactly the documented subcommands and aliases. A
+subcommand's handler is `_x_<name>_<sub>` (`_x_vault_keys_new`), which is how
+the check finds its options.
 
 ### Output helpers: one design language
 
@@ -93,7 +152,7 @@ your `-q` to it) silences everything but warnings and errors.
 |---|---|
 | `_x_step` / `_x_info` | doing something (bold) / a detail or hint (dim) |
 | `_x_ok` / `_x_warn` / `_x_err` | it worked / worth knowing / it failed |
-| `_x_usage [-o] "x foo <arg>" [detail…]` | `Usage:` line, details dim and indented; on stderr, or stdout with `-o` when `-h`/`--help` asked for it (and exit 0) |
+| `_x_help [-o] foo [sub…]` | the command's Usage block (a subcommand's lines only); on stderr with status 1, or stdout with `-o` when `-h`/`--help` asked for it (and status 0) |
 | `_x_heading`, `_x_row name text` | report heading, aligned name/description rows |
 | `_x_item on\|half\|off\|ok\|err text` | report line led by a state icon (x serve, x connect) |
 | `_x_mark role text` | inline mark, several per line (x doctor) |
@@ -102,6 +161,7 @@ your `-q` to it) silences everything but warnings and errors.
 | `… \| _x_pv -s bytes -N label \| …` | progress bar for a byte stream (`xstream.py meter`, the same bar as `x gdrive` transfers), a plain pass-through otherwise |
 | `_x_ask var "prompt" [-s]`, `_x_ask_yn "question"` | read from the terminal (stdin without one) |
 | `_x_bytes n`, `_x_elapsed t0` | `1.2 GiB`, `4.2s` / `3:07` |
+| `_x_rand_b32 n`, `_x_rand_key` | n random base32 characters (archive names, key ids) / a 32-byte base64url key |
 
 ## Encrypted backups: `x kdf`, `x seal`, `x unseal`, `x gdrive`, `x vault`
 

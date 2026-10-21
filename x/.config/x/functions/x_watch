@@ -1,21 +1,22 @@
 ## stream a torrent/url in iina, optionally buffered in RAM
 #@needs webtorrent
 #@needs-optional iina fzf
-# Usage: x watch [player] [--ram[=GiB]] [webtorrent flags] <url-or-magnet>
-#   x watch <url-or-magnet>            -> plays in IINA (default)
-#   x watch iina <url-or-magnet>       -> same, player named explicitly
-#   x watch --ram <url-or-magnet>      -> buffers on a RAM disk instead of SSD
-#   x watch --ram=16G <url-or-magnet>  -> same, with a custom RAM disk size (GiB)
-#   x watch -s <url-or-magnet>         -> list the torrent's files, with indices
-#   x watch -s 3 <url-or-magnet>       -> stream file 3 (indices are 0-based)
-#   x watch -i <url-or-magnet>         -> pick that file with an fzf picker
+# Usage: x watch [player] [--ram[=GiB]] [-i] [webtorrent flags] <url-or-magnet>
+#
+#   x watch <url-or-magnet>            play in IINA (the default player)
+#   x watch iina <url-or-magnet>       the same, player named explicitly
+#   x watch --ram <url-or-magnet>      buffer on a RAM disk instead of the SSD
+#   x watch --ram=16G <url-or-magnet>  the same, with a 16 GiB RAM disk
+#   x watch -s <url-or-magnet>         list the torrent's files, with indices
+#   x watch -s 3 <url-or-magnet>       stream file 3 (indices are 0-based)
+#   x watch -i <url-or-magnet>         pick the file with fzf
 #
 # Every flag except --ram and -i is forwarded to webtorrent untouched (-s, -t,
 # --playlist, --player-args, ...). Flags that take a separate value are known
 # by name, so their value isn't mistaken for the player or the magnet; for any
 # flag not in that list, use the --flag=value form. -i can't be combined with
 # -s: pick one way to select a file.
-#
+
 # -i workaround: webtorrent's own --interactive-select (inquirer) is clunky
 # and hard to read. We fetch the file list ourselves the same way `-s` (bare)
 # does, parse webtorrent's own listing output, sort it by name, and hand it to
@@ -49,8 +50,8 @@
 # every URL with a space in it.
 #
 # ADDING A PLAYER: define `_x_watch_play_<name>` below, taking the target plus
-# any extra webtorrent args. It's picked up by name — no list to keep in sync,
-# and `x watch <name> <url>` starts working immediately.
+# any extra webtorrent args, and add its `x watch <name> <url-or-magnet>` line
+# to the Usage block above (that's what completes it and documents it).
 emulate -L zsh
 
 local player="iina"
@@ -67,7 +68,6 @@ local -a wt_valued=(
     -d --download-limit -u --upload-limit --player-args --torrent-port
     --dht-port --on-done --on-exit
 )
-local usage="x watch [player] [--ram[=GiB]] [webtorrent flags] <url-or-magnet>"
 
 while (( $# )); do
     case "$1" in
@@ -95,8 +95,8 @@ while (( $# )); do
             fi
             ;;
         -h|--help)
-            _x_usage -o "$usage" "See the comment block at the top of ${X_FUNCTIONS_DIR/#$HOME/~}/x_watch."
-            return 0
+            _x_help -o watch
+            return
             ;;
         -i|--interactive-select)
             # Handled ourselves (fzf), not forwarded to webtorrent.
@@ -128,16 +128,16 @@ fi
 
 if (( ${#pos} > 2 )); then
     _x_err "Too many arguments: ${(j: :)pos[3,-1]}"
-    _x_usage "$usage"
-    return 1
+    _x_help watch
+    return
 fi
 if (( ${#pos} == 2 )); then
     player="${pos[1]}"
 fi
 local target="${pos[${#pos}]}"
 if [[ -z "$target" ]]; then
-    _x_usage "$usage"
-    return 1
+    _x_help watch
+    return
 fi
 
 _x_watch_play_iina() {

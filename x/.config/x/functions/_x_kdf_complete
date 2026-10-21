@@ -1,0 +1,10 @@
+# Completion hook for `x kdf …`.
+# _arguments takes words[1] for the command: drop the `x`.
+shift words
+(( CURRENT-- ))
+_arguments \
+    '-P[purpose (default file)]:purpose:' \
+    '-m[master key on stdin]:source:(-)' \
+    '--selftest[check HKDF against RFC 5869]' \
+    '1:key id:' \
+    '2:archive name:'

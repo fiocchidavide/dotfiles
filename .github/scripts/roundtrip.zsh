@@ -32,4 +32,12 @@ fi
 
 print -r -- $pass | x unseal -q -p - -C $work/dst $work/out.age >/dev/null
 diff -r $work/src $work/dst/src
+
+# Without --name the archive name is random: 26 base32 characters.
+mkdir $work/dst2
+print -r -- $pass | x seal -q -p - -o $work/out2.age $work/src >/dev/null
+print -r -- $pass | x unseal -q -p - -C $work/dst2 $work/out2.age >/dev/null
+diff -r $work/src $work/dst2/src
+rand=$(_x_rand_b32 26)
+[[ ${#rand} == 26 && $rand != *[^a-z2-7]* ]]
 print "roundtrip ok"

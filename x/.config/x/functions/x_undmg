@@ -1,14 +1,14 @@
 ## extract the contents of a .dmg into a folder (mount, ditto, detach)
 #@needs diskutil hdiutil ditto
+# Usage: x undmg <image.dmg> [output-dir]
+#
+# Copies the image's contents out (output-dir: the image name without .dmg,
+# next to it).
+
 emulate -L zsh
-if [[ $1 == (-h|--help) ]]; then
-    _x_usage -o "x undmg <image.dmg> [output-dir]" "output-dir defaults to the image name without .dmg, next to it"
-    return 0
-fi
 if [[ -z "$1" ]]; then
-    _x_usage "x undmg <image.dmg> [output-dir]" \
-        "output-dir defaults to the image name without .dmg, next to it"
-    return 1
+    _x_help undmg
+    return
 fi
 local dmg="$1"
 local out="${2:-${dmg:r}}"
