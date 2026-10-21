@@ -39,8 +39,8 @@
 # Each rclone remote is described by one item in the 1Password vault
 # X_GDRIVE_OP_VAULT (default "x-gdrive"): title = remote name, fields
 # "client id", "client secret" and "scope" (drive.file, drive, drive.readonly,
-# drive.appfolder). Change them in 1Password and run `x gdrive -r <name> login`
-# to apply. Remote paths are relative to the Drive root ("Vault/index.age").
+# drive.appfolder or drive.metadata.readonly). Change them in 1Password and run
+# `x gdrive -r <name> login` to apply. Remote paths are relative to the Drive root ("Vault/index.age").
 # x vault always uses the remote named "vault".
 
 emulate -L zsh
@@ -163,7 +163,7 @@ _x_gdrive_client_new() {
           {id: "scope", type: "STRING", label: "scope", value: $scope},
           {id: "used_for", type: "STRING", label: "used for", value: $use},
           {id: "notesPlain", type: "STRING", purpose: "NOTES", label: "notesPlain",
-           value: "rclone remote \"\($name)\" for x gdrive (x gdrive -r \($name) …).\n\nFill in a Google OAuth client of type Desktop app: console.cloud.google.com → Google Auth Platform → Clients. Its project needs the Google Drive API enabled, this scope listed under Data Access, and the app published (In production), or logins expire weekly.\n\nscope: drive.file (only files this client created), drive (everything), drive.readonly, drive.appfolder (hidden app folder).\n\nAfter changing anything here: x gdrive -r \($name) login"}
+           value: "rclone remote \"\($name)\" for x gdrive (x gdrive -r \($name) …).\n\nFill in a Google OAuth client of type Desktop app: console.cloud.google.com → Google Auth Platform → Clients. Its project needs the Google Drive API enabled, this scope listed under Data Access, and the app published (In production), or logins expire weekly.\n\nscope: drive.file (only files this client created), drive (everything), drive.readonly, drive.appfolder (hidden app folder), drive.metadata.readonly (names and sizes only).\n\nAfter changing anything here: x gdrive -r \($name) login"}
         ]}' |
         _x_spin "Creating client '$name' ($scope) in 1Password" \
             op item create --vault $X_GDRIVE_OP_VAULT - >/dev/null || return

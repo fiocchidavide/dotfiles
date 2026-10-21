@@ -1,6 +1,6 @@
 ## decrypt an archive made by x seal (extract, stream, or just verify)
 #@needs age age-plugin-batchpass zstd uv op
-# Usage: x unseal [key] [options] <file.age | ->
+# Usage: x unseal [options] <file.age | ->
 #
 #   x unseal <file.age | ->                   extract into . (or -C dir)
 #   x unseal -O <file.age | ->                tar stream to stdout
@@ -154,7 +154,11 @@ if (( clash )); then
     while [[ -e $keep || -L $keep ]]; do
         keep=$dest/${name}.unsealed-$(( ++n ))
     done
-    mv -- $stage $keep
+    # A new folder rather than the stage itself, which mktemp made 0700.
+    if ! { mkdir -- $keep && mv -- $stage/*(DN) $keep/ && rmdir -- $stage }; then
+        _x_err "Couldn't move the contents into ${keep/#$HOME/~}; they are in ${stage/#$HOME/~}."
+        return 1
+    fi
     _x_warn "Something with the same name exists in ${dest/#$HOME/~}; extracted into ${keep/#$HOME/~} instead."
     print -r -- $keep
     return 0

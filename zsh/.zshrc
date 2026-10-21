@@ -9,12 +9,13 @@ plugins=(fzf-tab git zsh-autosuggestions zsh-syntax-highlighting)
 
 # Homebrew completions are already on fpath for compinit: `brew shellenv` in
 # ~/.zprofile adds $HOMEBREW_PREFIX/share/zsh/site-functions.
-source $ZSH/oh-my-zsh.sh
+# Guarded like fnm and zoxide below: a fresh machine lacks it until make omz.
+[[ -r $ZSH/oh-my-zsh.sh ]] && source $ZSH/oh-my-zsh.sh
 
 # pure zsh template
 # oh-my-zsh overrides the prompt so Pure must be activated after source $ZSH/oh-my-zsh.sh
 autoload -U promptinit; promptinit
-prompt pure
+(( ${prompt_themes[(Ie)pure]} )) && prompt pure
 
 source ~/.myfunctions
 

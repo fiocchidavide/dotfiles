@@ -1,5 +1,5 @@
 ## share a local service over the tailnet (webdav | paseo), or stop sharing
-#@needs tailscale rclone op jq nc
+#@needs tailscale rclone op jq nc htpasswd
 # Usage: x serve [webdav|paseo|off] …
 #
 #   x serve webdav [dir]   rclone WebDAV backend + tailscale in front (default $X_WEBDAV_DIR)
@@ -144,10 +144,20 @@ _x_serve_webdav() {
     _x_serve_tailscale_up || return
 
     mkdir -p $state_dir
-    # Passed as env vars rather than --user/--pass so the password stays out of
-    # the process list. `&!` disowns, so rclone outlives this shell.
-    RCLONE_USER="$X_WEBDAV_USER" RCLONE_PASS="$password" \
-        nohup rclone serve webdav "$dir" --addr "127.0.0.1:$webdav_port" \
+    # rclone gets a bcrypt hash of the password in an htpasswd file, never the
+    # password itself: as --pass it would be in the process list, and as
+    # RCLONE_PASS in the environment of a process that runs for days.
+    # htpasswd -i reads the password from stdin.
+    local htpasswd=$state_dir/webdav.htpasswd
+    if ! ( umask 077; print -r -- "$password" | htpasswd -niB "$X_WEBDAV_USER" >| $htpasswd ); then
+        rm -f $htpasswd
+        _x_err "Couldn't write the WebDAV password file."
+        _x_serve_tailscale_settle
+        return 1
+    fi
+    password=""
+    # `&!` disowns, so rclone outlives this shell.
+    nohup rclone serve webdav "$dir" --addr "127.0.0.1:$webdav_port" --htpasswd $htpasswd \
         >| $state_dir/webdav.log 2>&1 &!
     print $! >| $state_dir/webdav.pid
     print -r -- "$dir" >| $state_dir/webdav.dir
@@ -205,7 +215,7 @@ _x_serve_stop_webdav() {
         kill $pid 2>/dev/null
         stopped=1
     fi
-    rm -f $state_dir/webdav.pid $state_dir/webdav.dir
+    rm -f $state_dir/webdav.pid $state_dir/webdav.dir $state_dir/webdav.htpasswd
     [[ -z $quiet ]] && (( stopped )) && _x_ok "Stopped webdav."
     return 0
 }
@@ -230,8 +240,9 @@ _x_serve_off() {
         webdav) _x_serve_stop_webdav ;;
         paseo)  _x_serve_stop_paseo ;;
         *)
-            _x_err "Unknown target '$target'. Try: x serve off [webdav|paseo|all]"
-            return 1
+            _x_err "Unknown target '$target'."
+            _x_help serve off
+            return
             ;;
     esac
     _x_serve_tailscale_settle

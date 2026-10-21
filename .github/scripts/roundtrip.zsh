@@ -40,4 +40,30 @@ print -r -- $pass | x unseal -q -p - -C $work/dst2 $work/out2.age >/dev/null
 diff -r $work/src $work/dst2/src
 rand=$(_x_rand_b32 26)
 [[ ${#rand} == 26 && $rand != *[^a-z2-7]* ]]
+
+# gzip, which never pads (what x vault share uses), and zstd with --no-pad.
+mkdir $work/dst3
+print -r -- $pass | x seal -q -p - -z gzip --meta $work/gz.json -o $work/gz.age $work/src >/dev/null
+[[ $(jq -r .padded $work/gz.json) == false ]]
+print -r -- $pass | x unseal -q -p - -z gzip -C $work/dst3 $work/gz.age >/dev/null
+diff -r $work/src $work/dst3/src
+print -r -- $pass | x seal -q -p - --no-pad --meta $work/np.json -o $work/np.age $work/src >/dev/null
+[[ $(jq -r .padded $work/np.json) == false ]]
+
+# -O: the tar stream on stdout.
+list=$(print -r -- $pass | x unseal -q -p - -O $work/out.age | tar -tf -)
+(( ${${(f)list}[(Ie)src/sub/b.bin]} ))
+
+# A name that's taken: the contents go into out.unsealed, an ordinary folder.
+kept=$(print -r -- $pass | x unseal -q -p - -C $work/dst $work/out.age)
+[[ $kept == $work/dst/out.unsealed ]]
+diff -r $work/src $kept/src
+[[ $(stat -f %Lp $kept) == $(printf '%o' $(( 8#777 & ~8#$(umask) ))) ]]
+
+# A level the compressor doesn't have stops before anything is written.
+if print -r -- $pass | x seal -q -p - -z gzip -L 19 -o $work/bad.age $work/src >/dev/null 2>&1; then
+    print -u2 "gzip -L 19 was accepted"
+    exit 1
+fi
+[[ ! -e $work/bad.age ]]
 print "roundtrip ok"

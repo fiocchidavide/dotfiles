@@ -14,7 +14,8 @@
 # The API key comes from 1Password, through X_DATALAB_API_KEY_REF in
 # ~/.config/x/config.zsh.
 
-# The key is read from 1Password per call and never exported.
+# The key is read from 1Password per call and reaches Python on a pipe fd
+# (stdin carries the script), never argv or the environment.
 
 emulate -L zsh
 
@@ -27,7 +28,7 @@ _x_datalab_convert() {
     fi
     _x_need_config X_DATALAB_API_KEY_REF || return
 
-    local key
+    local key kfd
     key=$(op read "$X_DATALAB_API_KEY_REF")
     if [[ -z "$key" ]]; then
         _x_err "Couldn't read the Datalab API key from 1Password."
@@ -37,10 +38,12 @@ _x_datalab_convert() {
     # Icons come from x.zsh so the Python side speaks the same design language.
     local fancy=""
     _x_fancy && fancy=1
-    DATALAB_API_KEY=$key X_DATALAB_OUT=${o_out[2]:-output} X_DATALAB_PAGES=${o_pages[2]} \
-        X_DATALAB_OK="$(_x_icon ok)" X_DATALAB_ERR="$(_x_icon err)" X_DATALAB_FANCY=$fancy \
-        X_DATALAB_SGR="${X_COLORS[spin]}" X_QUIET=${X_QUIET:-0} \
-        uv run --quiet --no-project --with datalab-python-sdk python - "$@" <<'PY'
+    {
+        exec {kfd}< <(print -r -- $key)
+        X_DATALAB_KEY_FD=$kfd X_DATALAB_OUT=${o_out[2]:-output} X_DATALAB_PAGES=${o_pages[2]} \
+            X_DATALAB_OK="$(_x_icon ok)" X_DATALAB_ERR="$(_x_icon err)" X_DATALAB_FANCY=$fancy \
+            X_DATALAB_SGR="${X_COLORS[spin]}" X_QUIET=${X_QUIET:-0} \
+            uv run --quiet --no-project --with datalab-python-sdk python - "$@" <<'PY'
 import os, sys, threading, time
 from pathlib import Path
 from datalab_sdk import ConvertOptions, DatalabClient
@@ -102,7 +105,8 @@ class Ticker:
         self.thread.join()
 
 
-client = DatalabClient()
+with os.fdopen(int(os.environ["X_DATALAB_KEY_FD"])) as key_file:
+    client = DatalabClient(api_key=key_file.readline().strip())
 files = [Path(a) for a in sys.argv[1:]]
 # One new output folder per input; a name that's taken, by an earlier run or
 # another input, gets -2, -3, … rather than mixing with what's there.
@@ -138,6 +142,7 @@ for n, (f, dest) in enumerate(zip(files, dests), 1):
     print(dest)  # stdout: the output folder, for capture by callers
 sys.exit(1 if failed else 0)
 PY
+    } always { (( kfd )) && exec {kfd}<&- }
 }
 
 case "${1:-}" in

@@ -26,7 +26,8 @@
 #                                        combined with AND: --from <id>, --status
 #                                        retired|compromised, --match <glob on
 #                                        path>, --before <YYYY-MM-DD>, --larger or
-#                                        --smaller <size, e.g. 2G>, or --all
+#                                        --smaller <content size as x vault ls
+#                                        shows it, e.g. 2G>, or --all
 #   x vault rm [-n] <archive|path|pattern>…
 #                                        delete archives from Drive and the index
 #   x vault check                        compare the index with Drive
@@ -268,15 +269,20 @@ _x_vault_save_index() {
     _x_vault_current || return
     id=$xv_current
     tmp=$(mktemp -d "${TMPDIR:-/tmp}/xvault.XXXXXX") || return
+    # Uploaded under a temporary name and checked there, so the index in use
+    # is replaced only by a verified copy, never overwritten by a bad upload.
+    local partial=$R/$id.index.age.partial
     {
         cp $index $tmp/index.jsonl
         X_QUIET=1 x_seal -q -k $id --name $id.index --meta $tmp/meta.json \
             -o $tmp/$id.index.age $tmp/index.jsonl >/dev/null &&
-        _x_vault_gdrive rcat $R/$id.index.age < $tmp/$id.index.age &&
-        [[ $(_x_vault_gdrive sha256 $R/$id.index.age) == $(jq -r .age.sha256 $tmp/meta.json) ]] || rc=1
+        _x_vault_gdrive rcat $partial < $tmp/$id.index.age &&
+        [[ $(_x_vault_gdrive sha256 $partial) == $(jq -r .age.sha256 $tmp/meta.json) ]] &&
+        X_QUIET=1 _x_vault_gdrive mv $partial $R/$id.index.age || rc=1
     } always { rm -rf -- $tmp }
     if (( rc )); then
-        _x_err "Saving the index to Drive failed."
+        _x_vault_gdrive rm $partial >/dev/null 2>&1
+        _x_err "Saving the index to Drive failed; the one there is unchanged."
         return 1
     fi
     # An index sealed under an older key is replaced, not kept beside it.
@@ -293,15 +299,18 @@ _x_vault_save_index() {
 # the whole path or its last component ("*/2019-*", "*.dmg"). Invalid glob
 # syntax just doesn't match as a glob.
 _x_vault_matches() {
-    setopt local_options no_bad_pattern
-    local name=$1 p=$2 arg=$3
+    local name=$1 p=$2 arg=$3 glob=0
     # As x vault ls prints paths: a leading ~ (often quoted, so unexpanded)
     # and a trailing / on folders.
     [[ $arg == '~' || $arg == '~/'* ]] && arg=$HOME${arg#\~}
     [[ $arg == ?*/ ]] && arg=${arg%%/##}
     local a=${arg%.age}
     # ${arg:A} too: x seal records a symlink argument as its target.
-    [[ $name == $a || $p == ${arg:a} || $p == ${arg:A} || $p == *"$arg"* || $p == ${~arg} || ${p:t} == ${~arg} ]]
+    [[ $name == $a || $p == ${arg:a} || $p == ${arg:A} || $p == *"$arg"* ]] && return 0
+    # A bad pattern ("Photos [2019") is an error that would stop the whole
+    # command, even with no_bad_pattern; the always block clears it.
+    { [[ $p == ${~arg} || ${p:t} == ${~arg} ]] 2>/dev/null && glob=1 } always { TRY_BLOCK_ERROR=0 }
+    (( glob ))
 }
 
 # Archive names in the index matching an argument.
@@ -477,7 +486,7 @@ _x_vault_push() {
         local -i total=0
         local m
         for m in $staged; do
-            print -u2 "  $(jq -r '.created[0:10]' $m)  $(_x_bytes $(jq -r .size $m))  ${$(jq -r .path $m)/#$HOME/~}"
+            print -r -- "$(jq -r '.created[0:10]' $m)  $(_x_bytes $(jq -r .size $m))  ${$(jq -r .path $m)/#$HOME/~}"
             (( total += $(jq -r .size $m) ))
         done
         _x_info "${#staged} archive(s), $(_x_bytes $total) would be pushed."
@@ -655,10 +664,10 @@ _x_vault_rekey() {
         for n in $found; do wanted[$n]=1; done
     done
 
-    local name key created size p m hit
+    local name key created size content p m hit
     local -a chosen
     local -i total=0
-    while IFS=$'\t' read -r name key created size p; do
+    while IFS=$'\t' read -r name key created size content p; do
         [[ $key == $to ]] && continue
         (( $# )) && (( ! ${+wanted[$name]} )) && continue
         (( $#froms )) && (( ! ${froms[(Ie)$key]} )) && continue
@@ -669,11 +678,12 @@ _x_vault_rekey() {
             (( hit )) || continue
         fi
         [[ -n ${o_before[2]} && ! $created < ${o_before[2]} ]] && continue
-        [[ -n $larger ]] && (( size <= larger )) && continue
-        [[ -n $smaller ]] && (( size >= smaller )) && continue
+        # Content size, as x vault ls shows it; total is what gets transferred.
+        [[ -n $larger ]] && (( content <= larger )) && continue
+        [[ -n $smaller ]] && (( content >= smaller )) && continue
         chosen+=$name
         (( total += size ))
-    done < <(jq -r '[.name, .key, .created, .size, .path] | @tsv' $index)
+    done < <(jq -r '[.name, .key, .created, .size, .tar.bytes, .path] | @tsv' $index)
 
     if (( $#f_pick && $#chosen )); then
         if (( ! $+commands[fzf] )); then
@@ -895,8 +905,17 @@ _x_vault_share() {
         _x_err "$script isn't pushed yet; push it first (the link pins a public commit)."
         return 1
     fi
-    origin=$(git -C $repo remote get-url origin)
-    origin=${${${origin%.git}#git@github.com:}#https://github.com/}
+    origin=$(git -C $repo remote get-url origin) || return
+    case $origin in
+        git@github.com:*)       origin=${origin#git@github.com:} ;;
+        ssh://git@github.com/*) origin=${origin#ssh://git@github.com/} ;;
+        https://github.com/*)   origin=${origin#https://github.com/} ;;
+        *)
+            _x_err "origin ($origin) isn't on GitHub; the link needs raw.githubusercontent.com."
+            return 1
+            ;;
+    esac
+    origin=${origin%.git}
 
     local name=share-$(_x_rand_b32 16) pass tmp rc=0 url uploaded=0
     pass=$(_x_rand_key)

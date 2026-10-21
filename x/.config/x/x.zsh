@@ -36,7 +36,7 @@
 #   No reload of the whole file — only x_hello's body is compiled, and only
 #   when first run. .github/scripts/discover.zsh checks every command in CI.
 #
-# Re-run `_x_build_descriptions` in a live shell after editing descriptions.
+# Run `x reload` in a live shell after editing descriptions.
 # ============================================================================
 
 typeset -g  X_DIR X_FUNCTIONS_DIR
@@ -500,6 +500,7 @@ _x_help() {
     # between them don't end a run), terms longer than 44 columns with their
     # description below.
     local -i cols=${COLUMNS:-80} width n wrap r=1
+    (( cols > 0 )) || cols=80               # 0 outside a terminal
     (( cols > 100 )) && cols=100
     local -a out words runof
     local -A runw                           # run of entries -> its term column

@@ -1,8 +1,5 @@
 ## create/destroy stacked APFS RAM disks (multiplexed)
 #@needs diskutil hdiutil
-# Multiplexed APFS RAM disks. State is derived from what's actually mounted
-# (dirs matching /Volumes/RAMDisk<N>) rather than a separate stack file, so it
-# stays correct across crashes/reboots.
 # Usage: x ramdisk <command> …
 #
 #   x ramdisk create <size_in_GiB>    create the next disk (RAMDisk0, RAMDisk1, …)
@@ -10,6 +7,10 @@
 #                                     destroy the top of the stack (LIFO), a
 #                                     specific one, or all
 #   x ramdisk list|ls                 list mounted RAM disks
+
+# Multiplexed APFS RAM disks. State is derived from what's actually mounted
+# (dirs matching /Volumes/RAMDisk<N>) rather than a separate stack file, so it
+# stays correct across crashes/reboots.
 
 emulate -L zsh
 local prefix="/Volumes/RAMDisk"

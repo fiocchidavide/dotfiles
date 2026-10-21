@@ -21,6 +21,7 @@ brew "jq"             # x gdrive, x seal, x serve, x vault  (macOS 15+ also ship
 brew "stow"           # dotfiles symlink management
 brew "gh"             # git credential helper for github.com (.gitconfig)
 brew "fnm"            # node version manager (provides node for webtorrent)
+brew "pnpm"           # installs webtorrent-cli (see below)
 brew "zoxide"
 brew "fzf"            # also x vault push / rekey -i, x watch -i (optional)
 brew "pure"           # prompt

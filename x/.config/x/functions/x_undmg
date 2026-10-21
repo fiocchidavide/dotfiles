@@ -30,7 +30,14 @@ local attached=0
     diskutil image attach --readOnly --nobrowse --mountPoint "$mnt" "$dmg" >/dev/null \
         || { _x_err "Couldn't attach $dmg"; return 1; }
     attached=1
-    ditto "$mnt" "$out" && _x_ok "Extracted to $out"
+    if ! ditto "$mnt" "$out"; then
+        # $out didn't exist before: whatever is there is a partial copy.
+        chmod -R u+w ${out:a} 2>/dev/null
+        rm -rf -- $out
+        _x_err "Copying out of $dmg failed; nothing was kept."
+        return 1
+    fi
+    _x_ok "Extracted to $out"
 } always {
     (( attached )) && hdiutil detach "$mnt" -quiet
     rmdir "$mnt" 2>/dev/null

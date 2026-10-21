@@ -61,14 +61,30 @@ else
     src=${src:a}
 fi
 
+# Settled before any key is read, so a bad -z or -L costs no 1Password call.
+# --random archives are for sharing: portable, gzip unless asked otherwise.
+if (( $#f_random )); then
+    f_portable=(--portable)
+    (( $#o_comp )) || o_comp=(-z gzip)
+fi
+local -a compress
+local level=${o_level[2]} max
+case ${o_comp[2]:-zstd} in
+    zstd) max=19; compress=(zstd -q -T0 -${level:-9} --long=27 -c) ;;
+    gzip) max=9;  compress=(gzip -${level:-6} -c); f_nopad=(--no-pad) ;;
+    *)    _x_err "Unknown compression '${o_comp[2]}' (zstd or gzip)."; return 1 ;;
+esac
+if [[ -n $level ]] && { [[ $level != <1-> ]] || (( level > max )) }; then
+    _x_err "${o_comp[2]:-zstd} levels go from 1 to $max, not '$level'."
+    return 1
+fi
+
 # 26 base32 characters = 130 random bits.
 local id="" name pass mode
 if (( $#f_random )); then
     mode=random
     pass=$(_x_rand_key)
     name=${o_name[2]:-share-$(_x_rand_b32 16)}
-    f_portable=(--portable)
-    (( $#o_comp )) || o_comp=(-z gzip)
 elif [[ ${o_pass[2]} == - ]]; then
     mode=given
     IFS= read -r pass
@@ -98,13 +114,6 @@ if [[ $out != - && -e $out ]]; then
     _x_err "Refusing to overwrite $out"
     return 1
 fi
-
-local -a compress
-case ${o_comp[2]:-zstd} in
-    zstd) compress=(zstd -q -T0 -${o_level[2]:-9} --long=27 -c) ;;
-    gzip) compress=(gzip -${o_level[2]:-6} -c); f_nopad=(--no-pad) ;;
-    *)    _x_err "Unknown compression '${o_comp[2]}' (zstd or gzip)."; return 1 ;;
-esac
 
 # macOS tar keeps ACLs and extended attributes (Finder tags, quarantine, …)
 # in the archive by default; --portable leaves them out for other systems.
@@ -162,8 +171,12 @@ meta=$(jq -cn --arg name $name --arg key "$id" --arg mode $mode --arg path $src 
     '{name: $name, key: (if $key == "" then null else $key end), mode: $mode,
       path: $path, kind: $kind, created: $created, host: $host,
       compression: $compression, padded: $padded,
-      tar: $tar[0], inner: $inner[0], age: $age[0], size: $age[0].bytes}')
+      tar: $tar[0], inner: $inner[0], age: $age[0], size: $age[0].bytes}') || rc=$?
 rm -rf -- $tmp
+if (( rc )); then
+    _x_err "Sealed ${src:t}, but couldn't build its record of hashes and sizes."
+    return rc
+fi
 [[ -n ${o_meta[2]} ]] && print -r -- $meta > ${o_meta[2]}
 
 local tar_bytes=$(jq -r .tar.bytes <<<$meta) inner_bytes=$(jq -r .inner.bytes <<<$meta)

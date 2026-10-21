@@ -295,24 +295,9 @@ message can open that one file; it shares nothing with your master keys.
 - `x vault check` lists archives on Drive missing from the index (e.g. after
   an interrupted rekey) and vice versa.
 
-## Backup with GNU stow
+## Installing
 
-This directory is self-contained and position-agnostic: `x.zsh` resolves its
-own real path at runtime, so it doesn't matter where the enclosing repo is
-cloned. Move it into a dotfiles repo mirroring `$HOME`:
-
-```
-dotfiles/                 # git repo, cloned anywhere
-  x/                      # stow package
-    .config/x/            # <- this directory
-```
-
-Then, from the repo root (wherever that is):
-
-```sh
-mkdir -p ~/.config   # so only ~/.config/x folds, not ~/.config itself
-stow x            # symlinks ~/.config/x -> <repo>/x/.config/x
-```
-
-Because `x.zsh` resolves its own real path, autoloading keeps working through
-the symlink — no matter where `<repo>` lives.
+In the dotfiles repo this directory is the `x` stow package. It is the one
+package that folds: `make link` creates `~/.config` and then symlinks
+`~/.config/x` to it, so new commands and `config.zsh` show up without a
+relink. See the repo's README.

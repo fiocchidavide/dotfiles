@@ -126,9 +126,10 @@ first. The essentials:
 ## Checks (all run in CI on every push)
 
 ```sh
-for f in x/.config/x/x.zsh x/.config/x/functions/* zsh/.z* zsh/.myfunctions .github/scripts/*.zsh; do zsh -n "$f"; done
+for f in x/.config/x/x.zsh x/.config/x/functions/* x/.config/x/config.zsh.example zsh/.z* zsh/.myfunctions .github/scripts/*.zsh; do zsh -n "$f"; done
 zsh -f .github/scripts/discover.zsh     # every command/subcommand: help, errors, completion, docs vs code
 zsh -f .github/scripts/roundtrip.zsh    # x seal/unseal end to end (needs age, zstd, uv, jq)
+zsh -f .github/scripts/units.zsh        # pure helpers: formatting, x vault matching, padding (needs uv, zstd)
 zsh -f .github/scripts/open-share.zsh   # open.sh as a friend would run it (fetches age)
 uvx --from shellcheck-py shellcheck x/.config/x/share/open.sh
 python3 -I x/.config/x/lib/xstream.py selftest

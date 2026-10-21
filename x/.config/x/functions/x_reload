@@ -1,10 +1,11 @@
 ## reload the dispatcher and refresh all command definitions
-# Drops loaded command bodies + completion hooks so edited or newly-created
-# command files are picked up, then re-sources the core (which re-autoloads
-# everything and rebuilds descriptions).
 # Usage: x reload
 #
 # Re-reads x.zsh and every command file, after editing them by hand.
+
+# Drops loaded command bodies + completion hooks so edited or newly-created
+# command files are picked up, then re-sources the core (which re-autoloads
+# everything and rebuilds descriptions).
 
 emulate -L zsh
 local fn
