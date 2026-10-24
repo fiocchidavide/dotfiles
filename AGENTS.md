@@ -10,7 +10,7 @@ know before changing anything.
 | Path | What it is |
 | ---- | ---------- |
 | `<pkg>/…` | A stow package: every top-level directory, mirroring `$HOME` (`zsh/.zshrc` → `~/.zshrc`) |
-| `x/.config/x/` | The `x` dispatcher (`x.zsh`), its commands (`functions/x_<name>`), completion hooks (`functions/_x_<name>_complete`), `lib/xstream.py`, `share/open.sh` |
+| `x/.config/x/` | The `x` dispatcher (`x.zsh`), its commands (`functions/x_<name>`), completion hooks (`functions/_x_<name>_complete`), `lib/xstream.py` |
 | `zsh/` | `.zshenv`, `.zprofile`, `.zshrc`, `.myfunctions` (sources `x.zsh`) |
 | `claude/.claude/CLAUDE.md` | The user's **global** Claude Code instructions, stowed to `~/.claude/CLAUDE.md`. Not about this repo; edit only when asked |
 | `Brewfile` | Homebrew deps; the "install manually" comments list what brew can't provide |
@@ -58,11 +58,11 @@ first. The essentials:
   errors, subcommand completion, and how help is rendered. Its format:
 
   ```zsh
-  # Usage: x vault <command> …              <- the shape of the command
+  # Usage: x rveil <command> …              <- the shape of the command
   #
-  #   x vault keys                list master keys
-  #   x vault keys new [--use]    create one (--use: make it current)
-  #   x vault rm [-n] <archive>…
+  #   x rveil keys                list master keys
+  #   x rveil keys new            create one
+  #   x rveil rm <match>…
   #                               delete archives   <- description continued
   #   x serve off|stop [target]   stop sharing      <- a subcommand + its aliases
   #
@@ -84,9 +84,9 @@ first. The essentials:
     the blank line that ends it.
 - On misuse a command shows its help with `_x_help <name> [sub…]; return`
   (stderr, status 1). Use `_x_help -o <name>` only where it parses `-h` among
-  other options (`x seal -q -h`). Never hand-write usage strings
+  other options (`x watch -i -h`). Never hand-write usage strings
   (`_x_usage` is for `x` itself).
-- Subcommand handlers are named `_x_<cmd>_<sub>[_<sub>]` (`_x_vault_keys_new`).
+- Subcommand handlers are named `_x_<cmd>_<sub>[_<sub>]` (`_x_rveil_keys_new`).
   CI reads their `zparseopts` by that name, so keep helpers off that pattern
   (`_x_gdrive_client_item`, not `_x_gdrive_client`).
 - Dispatch with a top-level `case` whose labels are exactly the documented
@@ -101,7 +101,7 @@ first. The essentials:
   - Commands that only take a path can go in the `_files` case at the end of
     `_x` instead.
 - **Output** goes through the helpers in `x.zsh` (`_x_step/_x_info/_x_ok/
-  _x_warn/_x_err`, `_x_heading/_x_row/_x_item`, `_x_spin`, `_x_pv`).
+  _x_warn/_x_err`, `_x_heading/_x_row/_x_item`, `_x_spin`).
   - Status lines go to stderr; data and requested reports go to stdout.
   - No raw emoji or escape codes: icons and colours live in `X_ICONS` and
     `X_COLORS`.
@@ -113,14 +113,11 @@ first. The essentials:
   environment. Options that take one accept only `-` (stdin).
 - **Prompts:** use `_x_ask` / `_x_ask_yn`. They read and prompt on
   `/dev/tty`, so they work when stdout or stderr is redirected.
-- **Randomness:** use `_x_rand_b32 n` and `_x_rand_key`.
-  - With `pipe_fail`, a `producer | head -c` pipe returns status 141
-    (SIGPIPE), so wrap such pipes in a helper with
-    `setopt local_options no_pipe_fail`.
+- With `pipe_fail`, a `producer | head -c` pipe returns status 141
+  (SIGPIPE), so wrap such pipes in a helper with
+  `setopt local_options no_pipe_fail`.
 - **Python** (`lib/xstream.py`) runs as
   `uv run --quiet --no-project python -I …`. Use uv for anything Python.
-- `share/open.sh` runs on other people's machines (`x vault share`). It must
-  stay portable bash and shellcheck-clean.
 - `x new <name>` scaffolds a compliant command. After editing, run `x reload`.
 
 ## Checks (all run in CI on every push)
@@ -128,11 +125,7 @@ first. The essentials:
 ```sh
 for f in x/.config/x/x.zsh x/.config/x/functions/* x/.config/x/config.zsh.example zsh/.z* zsh/.myfunctions .github/scripts/*.zsh; do zsh -n "$f"; done
 zsh -f .github/scripts/discover.zsh     # every command/subcommand: help, errors, completion, docs vs code
-zsh -f .github/scripts/roundtrip.zsh    # x seal/unseal end to end (needs age, zstd, uv, jq)
-zsh -f .github/scripts/units.zsh        # pure helpers: formatting, x vault matching, padding (needs uv, zstd)
-zsh -f .github/scripts/open-share.zsh   # open.sh as a friend would run it (fetches age)
-uvx --from shellcheck-py shellcheck x/.config/x/share/open.sh
-python3 -I x/.config/x/lib/xstream.py selftest
+zsh -f .github/scripts/units.zsh        # pure helpers: formatting, x rveil matching and log drawing (needs uv, jq)
 make -n help
 ```
 

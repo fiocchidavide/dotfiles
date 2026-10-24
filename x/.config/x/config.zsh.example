@@ -34,8 +34,7 @@ X_DATALAB_API_KEY_REF="op://<vault>/<item>/credential"
 # --- x gdrive ---------------------------------------------------------------
 # 1Password vault with one item per rclone remote: title = remote name, fields
 # "client id", "client secret", "scope". Scaffold with `x gdrive client new`.
-# x vault always uses the remote "vault"; plain x gdrive uses X_GDRIVE_REMOTE
-# unless given -r <remote>.
+# Plain x gdrive uses X_GDRIVE_REMOTE unless given -r <remote>.
 X_GDRIVE_OP_VAULT="x-gdrive"
 X_GDRIVE_REMOTE="drive"
 
@@ -45,10 +44,3 @@ X_GDRIVE_REMOTE="drive"
 X_RVEIL_KEYSTORE=""     # op:<1Password vault> (default op:rveil) or file:<path>
 X_RVEIL_REMOTE=""       # rclone path of the archive folder (default rveil:rveil)
 X_RVEIL_STAGING=""      # where put seals archives before push
-
-# --- x vault (and x kdf / x seal) -------------------------------------------
-# These are asked for on first use; defaults shown. The keys themselves live
-# in the 1Password vault named here, never in this file.
-X_VAULT_OP_VAULT="x-vault"
-X_VAULT_REMOTE_DIR="Vault"
-X_VAULT_STAGING="$HOME/.local/share/x/vault/staging"

@@ -6,16 +6,14 @@
 # with the `#@needs` lines in x/.config/x/functions/x_*.
 
 # --- x command runtime deps ---
-brew "age"            # x seal, x unseal, x vault  (age, age-plugin-batchpass)
 brew "aria2"          # x fastdw   (aria2c)
 brew "atool"          # x dw       (aunpack)
 brew "mupdf-tools"    # x extrct   (mutool)
 brew "m1ddc"          # x shine
 brew "openconnect"    # x connect
-brew "rclone"         # x serve webdav, x gdrive, x vault, x rveil
-brew "uv"             # x ocr, x datalab, x gdrive, x kdf, x seal, x unseal, x vault, x rveil, mas
-brew "zstd"           # x seal, x unseal, x vault
-brew "jq"             # x gdrive, x seal, x serve, x vault, x rveil  (macOS 15+ also ships one)
+brew "rclone"         # x serve webdav, x gdrive, x rveil
+brew "uv"             # x ocr, x datalab, x gdrive, x rveil, mas
+brew "jq"             # x gdrive, x serve, x rveil  (macOS 15+ also ships one)
 
 # --- dotfiles / shell tooling ---
 brew "stow"           # dotfiles symlink management
@@ -23,11 +21,11 @@ brew "gh"             # git credential helper for github.com (.gitconfig)
 brew "fnm"            # node version manager (provides node for webtorrent)
 brew "pnpm"           # installs webtorrent-cli (see below)
 brew "zoxide"
-brew "fzf"            # also x vault push / rekey -i, x watch -i (optional)
+brew "fzf"            # also x watch -i (optional)
 brew "pure"           # prompt
 
 # --- casks ---
-cask "1password-cli"  # x connect, x datalab, x gdrive, x kdf, x seal, x serve, x unseal, x vault  (op)
+cask "1password-cli"  # x connect, x datalab, x gdrive, x serve, x rveil  (op)
 cask "iina"           # x watch iina
 
 # --- not available via Homebrew (install manually) ---

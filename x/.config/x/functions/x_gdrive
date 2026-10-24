@@ -25,7 +25,7 @@
 #   x gdrive link [--unlink] <remote>
 #                                   anyone-with-the-link URL (copied)
 #
-# Plumbing for scripts (used by x vault):
+# Plumbing for scripts:
 #   x gdrive cat <remote>           file contents to stdout
 #   x gdrive rcat <remote>          stdin to a file on Drive
 #   x gdrive sha256 <remote>        Drive's SHA-256 of a file
@@ -41,7 +41,7 @@
 # "client id", "client secret" and "scope" (drive.file, drive, drive.readonly,
 # drive.appfolder or drive.metadata.readonly). Change them in 1Password and run
 # `x gdrive -r <name> login` to apply. Remote paths are relative to the Drive root ("Vault/index.age").
-# x vault always uses the remote named "vault".
+# The remote "vault" holds the archives x vault made.
 
 emulate -L zsh
 setopt extended_glob pipe_fail
@@ -418,7 +418,7 @@ case $cmd in
                 rclone rcat "$(_x_gdrive_path $1)" ;;
     sha256) _x_gdrive_nargs 1 sha256 "$@" && _x_gdrive_ready &&
                 rclone hashsum sha256 "$(_x_gdrive_path $1)" | cut -d' ' -f1 ;;
-    # exists "" checks the root (x vault init uses that to test the remote).
+    # exists "" checks the root, to test the remote.
     exists) _x_gdrive_nargs 1 exists "$@" && _x_gdrive_ready &&
                 rclone lsjson --stat "$(_x_gdrive_path $1)" >/dev/null 2>&1 ;;
     lsjson) _x_gdrive_ready && rclone lsjson "$(_x_gdrive_path ${1:-})" ;;

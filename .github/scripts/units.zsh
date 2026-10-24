@@ -1,8 +1,7 @@
 #!/usr/bin/env zsh
-# Unit checks for pure helpers: x.zsh's formatting, x vault's archive
-# matching and size parsing, and xstream.py's Padmé padding (which a stock
-# `zstd -d` must skip).
-#   zsh -f .github/scripts/units.zsh      (needs uv and zstd)
+# Unit checks for pure helpers: x.zsh's formatting, x rveil's archive
+# matching, and how xstream.py draws rveil's log.
+#   zsh -f .github/scripts/units.zsh      (needs uv and jq)
 emulate -L zsh
 setopt err_exit pipe_fail extended_glob
 
@@ -26,66 +25,44 @@ eq "$(_x_elapsed $(( EPOCHREALTIME - 4.2 )))" "4.2s" "_x_elapsed 4.2"
 eq "$(_x_elapsed $(( EPOCHREALTIME - 187 )))" "3:07" "_x_elapsed 187"
 eq "$(_x_elapsed $(( EPOCHREALTIME - 3723 )))" "1:02:03" "_x_elapsed 3723"
 
-# --- x vault -------------------------------------------------------------------
-# Running x_vault defines its helpers; an unknown subcommand stops it there.
-_x_ask_config() { return 0 }
-X_VAULT_REMOTE_DIR=Vault X_VAULT_STAGING=$work/staging XDG_STATE_HOME=$work/state
-x_vault no-such-sub 2>/dev/null || true
+# --- x rveil -------------------------------------------------------------------
+# Running x_rveil defines its helpers; an unknown subcommand stops it there.
+XDG_STATE_HOME=$work/state x_rveil no-such-sub 2>/dev/null || true
 
-match()   { _x_vault_matches "$@" || failures+="should match: $*" }
-nomatch() { ! _x_vault_matches "$@" || failures+="shouldn't match: $*" }
-n=abcdef.abcdefghijklmnopqrstuvwxyz
-match   $n /x/Photos $n
-match   $n /x/Photos $n.age
-match   $n $HOME/Photos '~/Photos/'
-match   $n "$HOME/Photos [2019]" 'Photos [2019]'
-match   $n /x/2019-03 '*/2019-*'
-match   $n /x/y/disk.dmg '*.dmg'
-nomatch $n /x/Photos Music
-nomatch $n /x/Photos '['
+recs='{"id":"abcdef.aaaaaaaaaaaaaaaaaaaaaaaaaa","name":"Photos","kind":"dir"}
+{"id":"abcdef.bbbbbbbbbbbbbbbbbbbbbbbbbb","name":"Photos 2019","kind":"dir"}
+{"id":"abcdef.cccccccccccccccccccccccccc","name":"tax.pdf","kind":"file"}'
+# picks <match> <names…>: the archives a match selects, by name.
+picks() { eq "$(_x_rveil_match $1 <<<$recs | jq -r .name | paste -sd, -)" "${(j:,:)@[2,-1]}" "match '$1'" }
+picks photos      Photos                 # a whole name: that archive only
+picks PHOTOS      Photos
+picks phot        Photos 'Photos 2019'   # a piece: every name containing it
+picks 2019        'Photos 2019'
+picks abcdef.cccccccccccccccccccccccccc     tax.pdf
+picks abcdef.cccccccccccccccccccccccccc.age tax.pdf
+picks abcdef      ''                     # a key id isn't a name
+picks nope        ''
 
-eq "$(_x_vault_size 123)" 123 "_x_vault_size 123"
-eq "$(_x_vault_size 500M)" 524288000 "_x_vault_size 500M"
-eq "$(_x_vault_size 2G)" 2147483648 "_x_vault_size 2G"
-eq "$(_x_vault_size 2GiB)" 2147483648 "_x_vault_size 2GiB"
-eq "$(_x_vault_size 1.5T)" 1649267441664 "_x_vault_size 1.5T"
-_x_vault_size 2X 2>/dev/null && failures+="_x_vault_size 2X: accepted"
-
-# --- xstream.py ----------------------------------------------------------------
-local xstream=(uv run --quiet --no-project python -I $repo/x/.config/x/lib/xstream.py)
-
-# The frames for any size, up to several maximal frames, without the bytes:
-# they must reach exactly the Padmé bucket, each one a valid skippable frame.
-uv run --quiet --no-project python -I - $repo/x/.config/x/lib <<'PY' || failures+="padding_frames"
-import sys
-sys.path.insert(0, sys.argv[1])
-import xstream as x
-
-bad = []
-for payload in (0, 1, 7, 8, 100, 4095, 4096, 4097, 10**6,
-                2**32 - 9, 2**32, 2**33 + 5, 5 * 2**32 + 3):
-    frames = list(x.padding_frames(payload))
-    total = payload + sum(x.FRAME_HEADER + body for _, body in frames)
-    if total != x.padme(payload + x.FRAME_HEADER):
-        bad.append(f"{payload}: padded to {total}")
-    for header, body in frames:
-        if (header[:4] != x.SKIPPABLE_MAGIC or not 0 <= body <= 0xFFFFFFFF
-                or int.from_bytes(header[4:], "little") != body):
-            bad.append(f"{payload}: bad frame ({body} bytes)")
-print("\n".join(bad), file=sys.stderr)
-sys.exit(1 if bad else 0)
-PY
-
-# End to end: a padded zstd stream decompresses to the original by itself.
-local size want
-for size in 1 1000 100000; do
-    head -c $size /dev/urandom > $work/raw
-    zstd -q -c $work/raw > $work/z
-    $xstream pad < $work/z > $work/padded
-    zstd -q -d -c $work/padded | cmp -s - $work/raw || failures+="pad $size: zstd -d differs"
-    want=$($xstream padme $(( $(wc -c < $work/z) + 8 )))
-    eq $(( $(wc -c < $work/padded) )) $want "pad $size: padded size"
-done
+# --- xstream.py rveillog -------------------------------------------------------
+# Off a terminal: outcomes, notices and errors as role lines (icon, text);
+# steps, progress and debug lines only drive the live line, so none print.
+local log
+log=$(print -r -- '{"level":"info","event":"start","step":"upload","msg":"Uploading"}
+{"level":"info","event":"progress","step":"upload","bytes":5,"total":10,"msg":"x"}
+{"level":"debug","event":"end","step":"upload","msg":"done"}
+{"level":"info","event":"archive","msg":"tax.pdf: pushing"}
+{"level":"info","event":"pushed","msg":"tax.pdf: on the remote"}
+{"level":"info","event":"sizes","msg":"sizes"}
+{"level":"notice","event":"odd","msg":"look"}
+{"level":"error","event":"fatal","msg":"broke"}' |
+    uv run --quiet --no-project python -I $repo/x/.config/x/lib/xstream.py rveillog \
+        --role step S 1 --role ok O 32 --role info I 2 --role warn W 33 --role err E 31 2>&1)
+eq "$log" $'S tax.pdf: pushing\nO tax.pdf: on the remote\nI sizes\nW look\nE broke' "rveillog lines"
+log=$(print -r -- '{"level":"info","event":"pushed","msg":"ok"}
+{"level":"error","event":"fatal","msg":"broke"}' |
+    X_QUIET=1 uv run --quiet --no-project python -I $repo/x/.config/x/lib/xstream.py rveillog \
+        --role ok O 32 --role err E 31 2>&1)
+eq "$log" "E broke" "rveillog X_QUIET"
 
 if (( $#failures )); then
     print -u2 -l -- "${#failures} unit check(s) failed:" "  "${^failures}

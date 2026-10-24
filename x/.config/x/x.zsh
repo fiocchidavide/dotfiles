@@ -112,7 +112,7 @@ x() {
         return
     fi
     shift
-    if [[ $cmd == help ]]; then             # x help vault put = x vault put --help
+    if [[ $cmd == help ]]; then             # x help rveil put = x rveil put --help
         x "$@" --help
         return
     fi
@@ -126,8 +126,8 @@ x() {
 
     # Help and subcommand checks, from the command's Usage block and the same
     # for every command, so commands implement none of it:
-    #   x vault -h | --help | help      the whole block, on stdout
-    #   x vault keys -h | --help        the `x vault keys …` lines
+    #   x rveil -h | --help | help      the whole block, on stdout
+    #   x rveil keys -h | --help        the `x rveil keys …` lines
     #   x ramdisk                       subcommand missing: the block, on stderr
     #   x ramdisk nope                  unknown subcommand: an error
     local -a subs kids kid_descs opt_descs kid_aliases opts valued
@@ -318,11 +318,11 @@ _x_usage() {
 # non-comment line, is its help. The Usage line gives the command's shape;
 # synopsis lines below read `#   x <cmd> …`, 3 spaces in, with what they do
 # after 2+ spaces or on the indented lines below:
-#   # Usage: x vault <command> …
+#   # Usage: x rveil <command> …
 #   #
-#   #   x vault keys                list master keys
-#   #   x vault keys new [--use]    create one
-#   #   x vault rm [-n] <archive>…
+#   #   x rveil keys                list master keys
+#   #   x rveil keys new            create one
+#   #   x rveil rm <match>…
 #   #                               delete archives
 # Leading plain words after `x <cmd>` are subcommands ("keys", "keys new");
 # `off|stop` names one with its aliases.
@@ -564,7 +564,7 @@ _x_help() {
 
 # Reports on stdout: a bold heading, aligned name/description rows, and items
 # led by a role icon (on/half/off for state, ok/err for checks).
-#   _x_heading "Commands"; _x_row vault "encrypted backups"
+#   _x_heading "Commands"; _x_row rveil "encrypted archives"
 #   _x_item on "webdav  ~/WebDAV → https://…"
 #   _x_mark ok jq; _x_mark err fzf; print     # inline marks, one line
 _x_heading() {
@@ -659,21 +659,6 @@ _x_spin() {
     return rc
 }
 
-# _x_pv [-s bytes] [-N label]: progress bar for a byte stream in a pipeline
-# (same renderer as x gdrive's transfers), or a plain pass-through when
-# quiet or not on a terminal.
-#   tar -cf - dir | _x_pv -s $bytes -N "dir" | zstd …
-_x_pv() {
-    local -a size name
-    zparseopts -D -E -- s:=size N:=name
-    if ! _x_fancy || (( ${X_QUIET:-0} )); then
-        cat
-        return
-    fi
-    uv run --quiet --no-project python -I $X_DIR/lib/xstream.py meter \
-        --size ${size[2]:-0} --label="${name[2]:-}"
-}
-
 # _x_ask <var> <prompt> [-s]: read a line from the terminal (stdin when there
 # is no terminal) into <var>; -s hides the input.
 _x_ask() {
@@ -699,19 +684,6 @@ _x_ask_yn() {
     local reply
     _x_ask reply "$(_x_icon ask) $1 [y/N] " || return 1
     [[ $reply == [yY]* ]]
-}
-
-# _x_rand_b32 <n>: n random base32 characters (a-z2-7); rejection sampling
-# keeps them uniform. head closing the pipe kills tr with SIGPIPE, which
-# pipe_fail would report as failure, so it's off here.
-_x_rand_b32() {
-    setopt local_options no_pipe_fail
-    LC_ALL=C tr -dc 'a-z2-7' </dev/urandom | head -c $1
-}
-
-# _x_rand_key: 32 random bytes as unpadded base64url, for keys and passphrases.
-_x_rand_key() {
-    head -c 32 /dev/urandom | base64 | tr '+/' '-_' | tr -d '=\n'
 }
 
 # _x_bytes <n>: human-readable size (1.2 GiB).

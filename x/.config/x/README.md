@@ -19,8 +19,7 @@ Self-management (built-in commands):
   functions/
     x_<name>               # one command per file, autoloaded on first use
     _x_<name>_complete     # optional per-command completion hook
-  lib/xstream.py           # HKDF, hashing and padding for x kdf / seal / vault
-  share/open.sh            # public one-shot decrypt script for x vault share
+  lib/xstream.py           # progress drawing for x gdrive and x rveil
 ```
 
 `x.zsh` finds its own directory (symlink-resolved, so it works when stowed),
@@ -77,7 +76,7 @@ the terminal and appends it to `config.zsh`, so it's asked only once.
    matching Homebrew formula/cask to `../../../Brewfile`.
 5. Complete what follows the command and its subcommands: add `<name>` to the
    `_files` case in `_x` (inside `x.zsh`) if it takes a path, or add
-   `functions/_x_<name>_complete` (see `_x_vault_complete`).
+   `functions/_x_<name>_complete` (see `_x_rveil_complete`).
 
 Example — `functions/x_hello`:
 
@@ -99,33 +98,33 @@ Plain words right after `x <name>` in a synopsis are subcommands, and
 `off|stop` names one together with its aliases:
 
 ```zsh
-# Usage: x vault <command> …
+# Usage: x rveil <command> …
 #
-#   x vault keys                list master keys
-#   x vault keys new [--use]    create one (--use: make it current)
-#   x vault rm [-n] <archive>…
+#   x rveil keys                list master keys
+#   x rveil keys new            create one
+#   x rveil rm <match>…
 #                               delete archives
 ```
 
-`x vault -h` renders it like the `x` command list: the shape first, then the
+`x rveil -h` renders it like the `x` command list: the shape first, then the
 forms in aligned columns with their descriptions in grey, then the prose.
 
 From that block, `x` itself does what every command would otherwise do by
 hand, the same way for all of them:
 
-- `x vault -h`, `--help`, `x vault help` and `x help vault` print the block;
-  `x vault keys --help` prints only the `x vault keys …` lines. On stdout,
+- `x rveil -h`, `--help`, `x rveil help` and `x help rveil` print the block;
+  `x rveil keys --help` prints only the `x rveil keys …` lines. On stdout,
   status 0.
 - A missing subcommand (`x ramdisk`) prints the block on stderr, status 1,
-  unless a synopsis shows the bare form (`x vault keys`). An unknown one
+  unless a synopsis shows the bare form (`x rveil keys`). An unknown one
   (`x ramdisk nope`) is an error before the command runs, so nothing is asked
   for or started.
-- `x vault <TAB>` and `x vault keys <TAB>` complete the subcommands, with
+- `x rveil <TAB>` and `x rveil keys <TAB>` complete the subcommands, with
   their descriptions. What follows them is up to the command's hook.
 
 So a command handles none of that. On misuse it shows its help with
 `_x_help <name> [subcommand…]; return`, and a command parsing `-h` among
-other options (`x seal -q -h`) uses `_x_help -o <name>`.
+other options (`x watch -i -h`) uses `_x_help -o <name>`.
 
 `.github/scripts/discover.zsh` (in CI) holds every command to this: for the
 command and each subcommand its block names, help works all four ways and
@@ -133,7 +132,7 @@ runs nothing; missing and unknown subcommands fail cleanly; completion offers
 the subcommands, every documented option and something for each argument;
 every option the code parses with `zparseopts` is documented; and the
 dispatch `case` handles exactly the documented subcommands and aliases. A
-subcommand's handler is `_x_<name>_<sub>` (`_x_vault_keys_new`), which is how
+subcommand's handler is `_x_<name>_<sub>` (`_x_rveil_keys_new`), which is how
 the check finds its options.
 
 ### Output helpers: one design language
@@ -158,29 +157,22 @@ your `-q` to it) silences everything but warnings and errors.
 | `_x_mark role text` | inline mark, several per line (x doctor) |
 | `_x_paint style text`, `_x_icon role` | inline styled text or icon, for composing |
 | `_x_spin [-t] "label" cmd…` | spinner with elapsed time while cmd runs, then a success or error line (`-t`: no line on success); cmd's stdout passes through |
-| `… \| _x_pv -s bytes -N label \| …` | progress bar for a byte stream (`xstream.py meter`, the same bar as `x gdrive` transfers), a plain pass-through otherwise |
 | `_x_ask var "prompt" [-s]`, `_x_ask_yn "question"` | read from the terminal (stdin without one) |
 | `_x_bytes n`, `_x_elapsed t0` | `1.2 GiB`, `4.2s` / `3:07` |
-| `_x_rand_b32 n`, `_x_rand_key` | n random base32 characters (archive names, key ids) / a 32-byte base64url key |
 
-## Encrypted backups: `x kdf`, `x seal`, `x unseal`, `x gdrive`, `x vault`
+## Google Drive: `x gdrive`
 
-Back up to Google Drive without Google being able to read content, names or
-exact sizes. Each layer works on its own:
+`x gdrive` reaches Google Drive through rclone remotes defined in 1Password:
+`login`, `up`, `down`, `ls`, `link`, … Encrypted backups go through
+[`x rveil`](#x-rveil-rveil-the-x-way); rveil's README covers its design,
+archive format and recovery with stock tools.
 
-| Command | Role |
-|---|---|
-| `x kdf` | per-archive passphrase from a master key (HKDF-SHA256) |
-| `x seal` / `x unseal` | file or folder ⇄ one `.age` archive |
-| `x gdrive` | Google Drive via rclone remotes defined in 1Password: `login`, `up`, `down`, `ls`, `link`, … |
-| `x vault` | the backup framework: keys, index, staging, `put`/`push`/`get`/`rm`, `rekey`, `share` |
-
-First run: `x gdrive -r vault login`, then `x vault init`. Daily use:
-`x vault put ~/Photos/2019`, then `x vault push`. With several archives
-staged, `push` opens an fzf picker (Tab marks several). `--all` skips the
-picker, patterns pick by path (`x vault push Photos`), and `-n` lists
-without uploading. Or
-`x vault put --direct /Volumes/Ext/Big` for data that doesn't fit locally.
+`x vault`, the backup framework that came before rveil, is retired, and so
+are `x seal`, `x unseal` and `x kdf`, the tools it was built on. Their last
+versions are in commit `5f29819`, with the README describing their archive
+format and recovery without them:
+`git show 5f29819:x/.config/x/README.md`, `git show 5f29819:x/.config/x/functions/x_unseal`.
+Their master keys stay in the 1Password vault `x-vault`.
 
 ### Drive remotes
 
@@ -191,7 +183,8 @@ Each rclone remote is one item in the 1Password vault `X_GDRIVE_OP_VAULT`
 
 | Remote | Scope | Used by |
 |---|---|---|
-| `vault` | `drive.file` | `x vault` only (hardcoded): its token reaches only files that client created |
+| `rveil` | `drive.file` | `x rveil` (rveil's default remote): its token reaches only files that client created |
+| `vault` | `drive.file` | the archives `x vault` made |
 | `drive` | `drive` | `x gdrive` by default (`X_GDRIVE_REMOTE`); `-r <remote>` picks another |
 
 - `x gdrive remotes` lists the items and whether each is connected, needs
@@ -201,104 +194,17 @@ Each rclone remote is one item in the 1Password vault `X_GDRIVE_OP_VAULT`
   item and authorises it in the browser. Change the scope or client in
   1Password, then log in again to apply it.
 
-`drive.file` access is per OAuth *client*, so with separate clients the
-vault's token can't see what the general remote uploads. The general remote
-(full `drive` scope) still sees everything, the vault's encrypted files
-included. A client's Cloud project needs the Drive API enabled, its
-scope listed under Data Access, and the app published ("In production"), or
-logins expire after 7 days.
-
-### Cryptography
-
-- **Master keys**: 32 random bytes each, one item per key in a dedicated
-  1Password vault (`X_VAULT_OP_VAULT`, default `x-vault`). Item title = key
-  id (6 base32 characters); fields `key`, `created`, `status`
-  (`active`/`retired`/`compromised`). The item `settings` has `current`. Keys
-  reach 1Password through a JSON template on stdin, never argv.
-- **Per-archive passphrase**: `base64url(HKDF-SHA256(ikm = master key,
-  salt = "x-vault/v1", info = "file" 0x00 keyid 0x00 name, 32 bytes))`.
-  `name` is the archive's file name without `.age`
-  (`<keyid>.<26 random base32>`), so every archive has an independent key,
-  and handing one out (`x vault key`) exposes nothing else. `x kdf --selftest`
-  checks the RFC 5869 vectors.
-- **Archive**: `tar | zstd -9 --long=27 | Padmé padding | age` in scrypt
-  passphrase mode (`age -j batchpass`, the passphrase on a pipe fd). age
-  is ChaCha20-Poly1305 in an authenticated stream, so tampering and
-  truncation fail loudly. Everything is symmetric, so it holds up against
-  "harvest now, decrypt later" with quantum computers.
-- **Padding**: Padmé rounds the compressed stream up to a size bucket (≤ 12%
-  overhead), using zstd *skippable frames*, which `zstd -d` ignores by
-  itself. The `.age` size reveals only the bucket. `--no-pad` turns it off.
-- **Index**: `<keyid>.index.age` on Drive, sealed like any archive, maps
-  archive names to original paths, sizes, dates and hashes (tar stream,
-  inner stream, ciphertext).
-- **Verification**: an upload counts only when Drive's SHA-256 equals the
-  ciphertext hash computed while sealing. Before an original is deleted, the
-  copy on Drive is streamed back, decrypted and compared with the tar hash.
-  The original is kept if it changed after sealing.
-- **Rekey** replaces only the outer age layer, Drive → pipe → Drive (no
-  decompression, nothing on disk). It checks the decrypted stream against the
-  recorded hash, then switches the index, and only then deletes the old
-  archive.
-
-### Recovery without these tools
-
-You need the master key (1Password) and the archive's name.
-
-```sh
-id=k7f3a2 name=k7f3a2.abcdefghijklmnopqrstuvwxyz
-info=$(printf 'file\0%s\0%s' $id $name | xxd -p | tr -d '\n')
-m=$(printf '%s' '<base64url master key>' | tr '_-' '/+')
-while [ $(( ${#m} % 4 )) -ne 0 ]; do m="$m="; done   # restore base64 padding
-key=$(printf '%s' "$m" | base64 -d | xxd -p | tr -d '\n')
-openssl kdf -keylen 32 -kdfopt digest:SHA256 -kdfopt hexkey:$key \
-  -kdfopt salt:x-vault/v1 -kdfopt hexinfo:$info -binary HKDF |
-  base64 | tr '+/' '-_' | tr -d '='          # -> the passphrase
-age -d $name.age | zstd -d | tar x           # age prompts for it
-```
-
-(Use OpenSSL 3+, e.g. Homebrew's, not macOS's LibreSSL. Without the padding
-line, macOS `base64 -d` silently drops the key's last bytes.) With this repo
-at hand, `x kdf -m - <id> <name>` reads the master key from stdin, without
-`op`.
-
-### Sharing with someone
-
-`x vault share [--to /Applications] <path>` seals with a fresh random
-passphrase (gzip, because stock macOS `tar` can't read zstd; no padding), uploads
-to `Vault/shares/`, makes an anyone-with-the-link URL and copies a message:
-the link plus
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/<you>/dotfiles/<commit>/x/.config/x/share/open.sh | bash -s -- <passphrase> <file>.age
-```
-
-The URL pins the commit of `share/open.sh`, so commit and push it before
-sharing. The script fetches a pinned, checksum-verified `age` into a temp
-folder, decrypts, shows what goes where, and asks first. Anyone holding the
-message can open that one file; it shares nothing with your master keys.
-
-### Notes
-
-- macOS `tar` stores names in decomposed Unicode (`é` as `e` + accent).
-  APFS treats both forms as the same name. Only byte-wise tools like `diff -r`
-  notice.
-- Archives keep permissions, symlinks, ACLs and extended attributes (Finder
-  tags, quarantine, …). Shares (`--portable`) leave out the macOS-only parts
-  so other systems don't get `._` files. Sealing a path that is itself a
-  symlink seals what it points to.
-- Every vault command picks archives the same way: by archive name, exact
-  path, any part of the original path, or a glob on it.
-- Deletions on Drive (`rm`, the old copy after a `rekey`, a replaced index)
-  go to Drive's trash, which counts against your quota for 30 days. Rekeying
-  a lot of data briefly needs that much extra room.
-- `x vault check` lists archives on Drive missing from the index (e.g. after
-  an interrupted rekey) and vice versa.
+`drive.file` access is per OAuth *client*, so with separate clients one
+remote's token can't see what another uploads. The general remote (full
+`drive` scope) still sees everything, the encrypted archives included. A
+client's Cloud project needs the Drive API enabled, its scope listed under
+Data Access, and the app published ("In production"), or logins expire
+after 7 days.
 
 ## `x rveil`: rveil, the x way
 
 [rveil](https://github.com/fiocchidavide/rveil) keeps encrypted, padded
-archives on an rclone remote, with its keys in 1Password: the same idea as
+archives on an rclone remote, with its keys in 1Password: the successor of
 `x vault`, as one Go program with a plain, rclone-like command line. `x rveil`
 puts x's look and conveniences on it:
 
