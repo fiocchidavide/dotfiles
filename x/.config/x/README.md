@@ -172,7 +172,6 @@ are `x seal`, `x unseal` and `x kdf`, the tools it was built on. Their last
 versions are in commit `5f29819`, with the README describing their archive
 format and recovery without them:
 `git show 5f29819:x/.config/x/README.md`, `git show 5f29819:x/.config/x/functions/x_unseal`.
-Their master keys stay in the 1Password vault `x-vault`.
 
 ### Drive remotes
 
@@ -184,7 +183,6 @@ Each rclone remote is one item in the 1Password vault `X_GDRIVE_OP_VAULT`
 | Remote | Scope | Used by |
 |---|---|---|
 | `rveil` | `drive.file` | `x rveil` (rveil's default remote): its token reaches only files that client created |
-| `vault` | `drive.file` | the archives `x vault` made |
 | `drive` | `drive` | `x gdrive` by default (`X_GDRIVE_REMOTE`); `-r <remote>` picks another |
 
 - `x gdrive remotes` lists the items and whether each is connected, needs

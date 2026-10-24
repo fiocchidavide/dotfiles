@@ -40,8 +40,7 @@
 # X_GDRIVE_OP_VAULT (default "x-gdrive"): title = remote name, fields
 # "client id", "client secret" and "scope" (drive.file, drive, drive.readonly,
 # drive.appfolder or drive.metadata.readonly). Change them in 1Password and run
-# `x gdrive -r <name> login` to apply. Remote paths are relative to the Drive root ("Vault/index.age").
-# The remote "vault" holds the archives x vault made.
+# `x gdrive -r <name> login` to apply. Remote paths are relative to the Drive root ("Photos/2019").
 
 emulate -L zsh
 setopt extended_glob pipe_fail
@@ -72,7 +71,7 @@ _x_gdrive_ready() {
     return 1
 }
 
-# "Vault/a.age" -> "vault:Vault/a.age"
+# "Photos/a.jpg" -> "drive:Photos/a.jpg"
 _x_gdrive_path() { print -r -- "$xg_remote:${1#/}" }
 
 # _x_gdrive_run <label> <rclone subcommand> [args…]: run a transfer with a
