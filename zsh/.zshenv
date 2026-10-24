@@ -30,6 +30,8 @@ fi
 [[ -d "$HOME/.bun/bin" ]] && _dotfiles_user_path+=("$HOME/.bun/bin")
 # uv
 [[ -d "$HOME/.local/bin" ]] && _dotfiles_user_path+=("$HOME/.local/bin")
+# go install
+[[ -d "$HOME/go/bin" ]] && _dotfiles_user_path+=("$HOME/go/bin")
 path=(${_dotfiles_user_path:|path} $path)
 
 # LM Studio CLI (lms), last on purpose
