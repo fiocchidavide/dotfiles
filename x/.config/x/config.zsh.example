@@ -39,6 +39,13 @@ X_DATALAB_API_KEY_REF="op://<vault>/<item>/credential"
 X_GDRIVE_OP_VAULT="x-gdrive"
 X_GDRIVE_REMOTE="drive"
 
+# --- x rveil -----------------------------------------------------------------
+# All optional; empty means rveil's own default. Passed to rveil as
+# RVEIL_KEYSTORE / RVEIL_REMOTE / RVEIL_STAGING.
+X_RVEIL_KEYSTORE=""     # op:<1Password vault> (default op:rveil) or file:<path>
+X_RVEIL_REMOTE=""       # rclone path of the archive folder (default rveil:rveil)
+X_RVEIL_STAGING=""      # where put seals archives before push
+
 # --- x vault (and x kdf / x seal) -------------------------------------------
 # These are asked for on first use; defaults shown. The keys themselves live
 # in the 1Password vault named here, never in this file.

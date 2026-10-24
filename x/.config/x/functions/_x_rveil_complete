@@ -1,0 +1,45 @@
+# Completion hook for what follows `x rveil <subcommand>` (x completes the
+# subcommands, from the Usage block); words[3] is the subcommand. Archives
+# are offered by name, with their date, size and id beside them: from the
+# cache x rveil keeps whenever it reads the index, and for push from rveil
+# itself (offline). Neither asks 1Password or the remote.
+
+local sub=${words[3]}
+local cache=${XDG_STATE_HOME:-$HOME/.local/state}/x/rveil/names
+
+# _x_rveil_offer <tag>: offer "name<TAB>details<TAB>id" lines (stdin) as names.
+_x_rveil_offer() {
+    local name what id
+    local -a items
+    while IFS=$'\t' read -r name what id; do
+        [[ -n $name ]] && items+=("${name//:/\\:}:$what  $id")
+    done
+    _describe -t archives $1 items
+}
+_x_rveil_archives() { [[ -r $cache ]] && _x_rveil_offer archive < $cache }
+_x_rveil_staged() {
+    local -a env=()
+    [[ -n ${X_RVEIL_STAGING-} ]] && env=(RVEIL_STAGING=${X_RVEIL_STAGING/#\~/$HOME})
+    env $env rveil -q ls --staged --json 2>/dev/null |
+        jq -r '[.name, .created[0:10] + "  staged", .id] | @tsv' 2>/dev/null |
+        _x_rveil_offer 'staged archive'
+}
+
+# _arguments counts arguments from words[2]: drop `x rveil` so the
+# subcommand is words[1] and `1:` means its first argument.
+shift 2 words
+(( CURRENT -= 2 ))
+
+case $sub in
+    put)    _arguments '--direct[straight to the remote, no staging copy]' '*:file or folder:_files' ;;
+    push)   _arguments '-n[list what would be pushed]' '*:staged archive:_x_rveil_staged' ;;
+    ls)     _arguments '-l[show archive ids]' '1:archive:_x_rveil_archives' ;;
+    get)    _arguments '-C[folder to extract into]:directory:_files -/' '1:archive:_x_rveil_archives' ;;
+    key|share)
+            _arguments '1:archive:_x_rveil_archives' ;;
+    rm)     _arguments '*:archive:_x_rveil_archives' ;;
+    rekey)  _arguments '--from[every archive under this key]:key id:' '*:archive:_x_rveil_archives' ;;
+    check)  _arguments '--deep[download and decrypt every archive]' ;;
+    seal)   _arguments '-o[output file or folder]:output:_files' '1:file or folder:_files' ;;
+    open)   _arguments '-C[folder to extract into]:directory:_files -/' '1:archive file:_files -g "*.age(-.)"' ;;
+esac

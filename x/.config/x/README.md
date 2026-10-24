@@ -295,6 +295,34 @@ message can open that one file; it shares nothing with your master keys.
 - `x vault check` lists archives on Drive missing from the index (e.g. after
   an interrupted rekey) and vice versa.
 
+## `x rveil`: rveil, the x way
+
+[rveil](https://github.com/fiocchidavide/rveil) keeps encrypted, padded
+archives on an rclone remote, with its keys in 1Password: the same idea as
+`x vault`, as one Go program with a plain, rclone-like command line. `x rveil`
+puts x's look and conveniences on it:
+
+- **What rveil is doing, as it does it.** rveil runs with
+  `-vv --use-json-log`, and `xstream.py rveillog` draws its log: a spinner
+  with each step (unlocking keys in 1Password, reading the index, checking
+  the remote's hash…), the `x gdrive` progress bar for transfers, and a
+  line in x's icons and colours for each outcome, notice and error.
+- **Originals.** `put` remembers where each archive came from (per
+  machine, under `$XDG_STATE_HOME/x/rveil`). Once `push` (or `put --direct`)
+  has the archive verified on the remote, it offers to delete the original,
+  unless it changed after sealing.
+- **Questions the x way** before `rm` and `rekey`, then rveil runs with `-y`.
+- **Completion** of every archive by name, with its date, size and id
+  beside it (from a cache refreshed whenever `x rveil` reads the index), and
+  of staged archives for `push` (from rveil, offline). A completed name
+  picks exactly that archive, even if other names contain it.
+
+Install rveil with `go install davidefiocchi.com/rveil@latest`. Settings are
+optional (`X_RVEIL_*` in `config.zsh`); rveil's defaults are the 1Password
+vault `rveil` and the remote `rveil:rveil`. For Google Drive, give it its own
+OAuth client: an item `rveil` in `X_GDRIVE_OP_VAULT` (scope `drive.file`),
+then `x gdrive -r rveil login`.
+
 ## Installing
 
 In the dotfiles repo this directory is the `x` stow package. It is the one

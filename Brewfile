@@ -12,10 +12,10 @@ brew "atool"          # x dw       (aunpack)
 brew "mupdf-tools"    # x extrct   (mutool)
 brew "m1ddc"          # x shine
 brew "openconnect"    # x connect
-brew "rclone"         # x serve webdav, x gdrive, x vault
-brew "uv"             # x ocr, x datalab, x gdrive, x kdf, x seal, x unseal, x vault, mas
+brew "rclone"         # x serve webdav, x gdrive, x vault, x rveil
+brew "uv"             # x ocr, x datalab, x gdrive, x kdf, x seal, x unseal, x vault, x rveil, mas
 brew "zstd"           # x seal, x unseal, x vault
-brew "jq"             # x gdrive, x seal, x serve, x vault  (macOS 15+ also ships one)
+brew "jq"             # x gdrive, x seal, x serve, x vault, x rveil  (macOS 15+ also ships one)
 
 # --- dotfiles / shell tooling ---
 brew "stow"           # dotfiles symlink management
@@ -33,5 +33,6 @@ cask "iina"           # x watch iina
 # --- not available via Homebrew (install manually) ---
 #   webtorrent-cli   ->  pnpm add -g webtorrent-cli   (x watch)
 #   tailscale        ->  the macOS app ships the CLI   (x serve)
+#   rveil            ->  go install davidefiocchi.com/rveil@latest   (x rveil)
 #   oh-my-zsh and its plugins (fzf-tab, zsh-syntax-highlighting,
 #   zsh-autosuggestions) -> make omz, which keeps this repo's ~/.zshrc

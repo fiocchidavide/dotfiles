@@ -1,0 +1,366 @@
+## encrypted archives on an rclone remote, through rveil: put, push, get, share
+#@needs rveil rclone uv jq
+#@needs-optional op
+# Usage: x rveil <command> …
+#
+#   x rveil put [--direct] <path>…       seal into staging (--direct: straight to
+#                                        the remote, then offer to delete it)
+#   x rveil push [-n] [match…]           upload staged archives (all, or those
+#                                        matching; -n: only list), offer to delete
+#                                        originals
+#   x rveil ls [-l] [match]              archives: date, key, size, name (-l: with ids)
+#   x rveil get [-C dir] <match>         download and extract
+#   x rveil key <match>                  print one archive's passphrase
+#   x rveil keys                         list master keys, current first
+#   x rveil keys new                     create a master key; it becomes current
+#   x rveil rekey [--from key] [match…]  re-encrypt archives under the current key
+#   x rveil rm <match>…                  delete archives from the remote
+#   x rveil check [--deep]               compare the index with the remote, offer
+#                                        fixes (--deep: decrypt every archive)
+#   x rveil share <match>                public link and message for a friend,
+#                                        copied to the clipboard
+#   x rveil seal [-o out] <path>         a local archive, not indexed
+#   x rveil open [-C dir] <file>         extract a local archive
+#
+# A match is an archive id, its name, or any piece of the name; Tab lists
+# them, with each archive's date and size. rveil does the work
+# (go install davidefiocchi.com/rveil@latest); this shows it the x way and
+# adds the clean-up of originals and completion. Settings, all
+# optional, in config.zsh: X_RVEIL_KEYSTORE, X_RVEIL_REMOTE, X_RVEIL_STAGING
+# (rveil's defaults: the 1Password vault rveil, rveil:rveil, its own staging
+# folder). For Google Drive, x gdrive -r rveil login sets up the remote.
+
+# rveil runs with -vv --use-json-log, and xstream.py rveillog draws that log
+# with x's icons and colours: a spinner while a step runs (unlocking keys,
+# reading the index…), a progress bar for transfers, a line per outcome.
+# rveil only records names; where an archive came from is kept here, per
+# machine, so push can offer to delete the original: origins/<id>.path, and
+# origins/<id>.ref, touched just before sealing, to tell whether it changed.
+# names caches name, date, size and id of each archive for completion,
+# refreshed whenever the wrapper reads the index.
+
+emulate -L zsh
+setopt extended_glob pipe_fail
+
+local state=${XDG_STATE_HOME:-$HOME/.local/state}/x/rveil
+local origins=$state/origins
+local id_re='^[a-z2-7]{6}\.[a-z2-7]{26}(\.age)?$'
+
+[[ -n ${X_RVEIL_KEYSTORE-} ]] && local -x RVEIL_KEYSTORE=$X_RVEIL_KEYSTORE
+[[ -n ${X_RVEIL_REMOTE-} ]] && local -x RVEIL_REMOTE=$X_RVEIL_REMOTE
+[[ -n ${X_RVEIL_STAGING-} ]] && local -x RVEIL_STAGING=${X_RVEIL_STAGING/#\~/$HOME}
+
+# _x_rveil_run <args…>: rveil with its log drawn the x way; its stdout
+# passes through and its exit status is kept.
+_x_rveil_run() {
+    # Without multios, 1>&3 moves stdout off the pipe instead of copying it.
+    setopt local_options no_multios
+    local -a roles
+    local r
+    for r in step info ok warn err; do
+        roles+=(--role $r ${X_ICONS[$r]} ${X_COLORS[$r]})
+    done
+    for r in spin dim bold; do
+        roles+=(--role $r '' ${X_COLORS[$r]})
+    done
+    { rveil -vv --use-json-log --stats 200ms "$@" 2>&1 1>&3 3>&- |
+        uv run --quiet --no-project python -I $X_DIR/lib/xstream.py rveillog "${roles[@]}"
+    } 3>&1
+}
+
+# Every archive as JSON lines; refreshes what completion offers.
+_x_rveil_records() {
+    local recs
+    recs=$(_x_rveil_run ls --json) || return
+    mkdir -p $state
+    _x_rveil_names <<<$recs >| $state/names
+    print -r -- $recs
+}
+
+# "name<TAB>date size<TAB>id" per record (stdin), for completion.
+_x_rveil_names() {
+    local name created size id
+    jq -r '[.name, .created[0:10], .size, .id] | @tsv' |
+    while IFS=$'\t' read -r name created size id; do
+        print -r -- "$name"$'\t'"$created  $(_x_bytes $size)"$'\t'$id
+    done
+}
+
+# _x_rveil_match <match>: the records (on stdin) it selects: the id, with
+# or without .age; else the archives with exactly that name, as completion
+# writes it; else, as rveil matches, those with it in their name, any case.
+_x_rveil_match() {
+    jq -sc --arg a $1 '($a | ascii_downcase) as $l
+        | map(select($a != "" and .id == ($a | sub("\\.age$"; "")))) as $id
+        | map(select(.name | ascii_downcase == $l)) as $exact
+        | map(select($a != "" and (.name | ascii_downcase | contains($l)))) as $part
+        | (if ($id | length) > 0 then $id elif ($exact | length) > 0 then $exact else $part end)[]'
+}
+
+# One line per record: date  key  size  name (dirs with a /) [id].
+_x_rveil_rows() {
+    local long=$1 created key size name kind id
+    jq -r '[.created[0:10], .key, .size, .name, .kind, .id] | @tsv' |
+    while IFS=$'\t' read -r created key size name kind id; do
+        [[ $kind == dir ]] && name+=/
+        printf '%s  %s  %10s  %s%s\n' $created $key "$(_x_bytes $size)" $name "${long:+  ($id)}"
+    done
+}
+
+# _x_rveil_one <match>: the id of the one archive it means. An id is taken
+# as is; a name is looked up, and must name one archive.
+_x_rveil_one() {
+    if [[ $1 =~ $id_re ]]; then
+        print -r -- ${1%.age}
+        return
+    fi
+    local found
+    found=$(_x_rveil_records | _x_rveil_match $1) || return
+    if [[ -z $found ]]; then
+        _x_err "No archive matches '$1' (see x rveil ls)."
+        return 1
+    fi
+    if [[ $(wc -l <<<$found) -gt 1 ]]; then
+        _x_err "'$1' matches $(wc -l <<<$found | tr -d ' ') archives; use the id of one:"
+        _x_rveil_rows 1 <<<$found | sed 's/^/  /' >&2
+        return 1
+    fi
+    jq -r .id <<<$found
+}
+
+# _x_rveil_offer_delete <id> <size>: once an archive is safely on the
+# remote, offer to delete what it was sealed from, unless that changed
+# since. Forgets the origin either way.
+_x_rveil_offer_delete() {
+    local id=$1 size=$2 p ref=$origins/$1.ref
+    [[ -r $origins/$id.path ]] || return 0
+    p=$(<$origins/$id.path)
+    _x_rveil_changed() { [[ ! -e $ref || -n $(find $p \( -newer $ref -o -cnewer $ref \) -print -quit 2>/dev/null) ]] }
+    {
+        [[ -e $p ]] || return 0
+        if _x_rveil_changed; then
+            _x_warn "${p/#$HOME/~} changed after it was sealed; keeping it."
+            return 0
+        fi
+        _x_ask_yn "Delete the original ${p/#$HOME/~} ($(_x_bytes $size))?" || return 0
+        # Again: it may have changed while the question was up.
+        if _x_rveil_changed; then
+            _x_warn "${p/#$HOME/~} changed while you were asked; keeping it."
+            return 0
+        fi
+        rm -rf -- $p && _x_ok "Deleted ${p/#$HOME/~}"
+    } always { rm -f $ref $origins/$id.path }
+}
+
+# --- commands ------------------------------------------------------------------
+
+_x_rveil_put() {
+    local -a f_direct
+    zparseopts -D -E -F -- -direct=f_direct || return 1
+    (( $# )) || { _x_help rveil put; return }
+    mkdir -p $origins
+    local p rec ref id failed=0
+    for p in "$@"; do
+        ref=$origins/.ref.$$
+        touch $ref
+        if ! rec=$(_x_rveil_run put --json $f_direct -- $p); then
+            rm -f $ref
+            failed=1
+            continue
+        fi
+        id=$(jq -r .id <<<$rec)
+        print -r -- ${p:A} >| $origins/$id.path
+        mv -f $ref $origins/$id.ref
+        if (( $#f_direct )); then
+            _x_rveil_offer_delete $id $(jq -r .size <<<$rec)
+        fi
+    done
+    if (( ! $#f_direct )); then
+        local -i n=$(rveil -q ls --staged --json | grep -c .)
+        (( n )) && _x_info "$n archive(s) staged. Upload with: x rveil push"
+    fi
+    return $failed
+}
+
+_x_rveil_push() {
+    local -a f_dry
+    zparseopts -D -E -F -- n=f_dry || return 1
+    local staged chosen a
+    staged=$(rveil -q ls --staged --json) || return
+    if [[ -z $staged ]]; then
+        _x_ok "Nothing staged."
+        return 0
+    fi
+    if (( $# )); then
+        chosen=$(for a in "$@"; do _x_rveil_match $a <<<$staged; done | jq -sc 'unique_by(.id)[]')
+    else
+        chosen=$staged
+    fi
+    if [[ -z $chosen ]]; then
+        _x_warn "Nothing staged matches; nothing pushed."
+        return 1
+    fi
+    if (( $#f_dry )); then
+        _x_rveil_rows 1 <<<$chosen
+        _x_info "$(wc -l <<<$chosen | tr -d ' ') archive(s), $(_x_bytes $(jq -s 'map(.size) | add' <<<$chosen)) would be pushed."
+        return 0
+    fi
+    local -a ids=(${(f)"$(jq -r .id <<<$chosen)"}) pushed
+    local rc=0
+    pushed=(${(f)"$(_x_rveil_run push -- $ids)"}) || rc=$?
+    local id
+    for id in $pushed; do
+        _x_rveil_offer_delete $id $(jq -r --arg i $id 'select(.id == $i) | .size' <<<$chosen)
+    done
+    return $rc
+}
+
+_x_rveil_ls() {
+    local -a f_long
+    zparseopts -D -E -F -- l=f_long || return 1
+    local recs
+    recs=$(_x_rveil_records) || return
+    [[ -n ${1-} ]] && recs=$(_x_rveil_match $1 <<<$recs)
+    [[ -n $recs ]] && _x_rveil_rows "${f_long:+1}" <<<$recs
+    _x_info "$(grep -c . <<<$recs) archive(s), $(_x_bytes $(jq -s 'map(.size) | add // 0' <<<$recs)) of content"
+}
+
+_x_rveil_get() {
+    local -a dir
+    zparseopts -D -E -F -- C:=dir || return 1
+    (( $# == 1 )) || { _x_help rveil get; return }
+    local id
+    id=$(_x_rveil_one $1) || return
+    _x_rveil_run get $dir -- $id
+}
+
+_x_rveil_key() {
+    (( $# == 1 )) || { _x_help rveil key; return }
+    local id
+    id=$(_x_rveil_one $1) || return
+    _x_rveil_run key -- $id
+}
+
+_x_rveil_keys() {
+    local cmd=${1:-}
+    (( $# )) && shift
+    case $cmd in
+        new)    _x_rveil_keys_new "$@"; return ;;
+        "")     ;;
+        *)      _x_help rveil keys; return ;;
+    esac
+    local keys recs id created current count bytes mark
+    keys=$(_x_rveil_run keys --json) || return
+    recs=$(_x_rveil_records) || return
+    _x_heading "$(printf '  %-12s %-11s %9s %11s' key created archives size)"
+    jq -r '[.id, .created, .current] | @tsv' <<<$keys |
+    while IFS=$'\t' read -r id created current; do
+        IFS=$'\t' read -r count bytes < <(jq -rs --arg id $id \
+            'map(select(.key == $id)) | "\(length)\t\(map(.size) | add // 0)"' <<<$recs)
+        mark=""
+        [[ $current == true ]] && mark="← current"
+        _x_row $id "$(printf '%-11s %9s %11s %s' ${created[1,10]} $count "$(_x_bytes $bytes)" $mark)"
+    done
+}
+
+_x_rveil_keys_new() {
+    _x_rveil_run keys new >/dev/null
+}
+
+_x_rveil_rekey() {
+    local -a from
+    zparseopts -D -E -F -- -from:=from || return 1
+    (( $#from || $# )) || { _x_help rveil rekey; return }
+    local recs current todo a
+    recs=$(_x_rveil_records) || return
+    current=$(_x_rveil_run keys --json | jq -r 'select(.current) | .id') || return
+    todo=$(
+        [[ -n ${from[2]-} ]] && jq -c --arg k ${from[2]} 'select(.key == $k)' <<<$recs
+        for a in "$@"; do _x_rveil_match $a <<<$recs; done
+    )
+    todo=$(jq -sc --arg c $current 'unique_by(.id)[] | select(.key != $c)' <<<$todo)
+    if [[ -z $todo ]]; then
+        _x_ok "Nothing to rekey: no matching archive is under an older key."
+        return 0
+    fi
+    _x_step "To re-encrypt under key $current:"
+    _x_rveil_rows "" <<<$todo | sed 's/^/  /' >&2
+    _x_ask_yn "Re-encrypt these $(wc -l <<<$todo | tr -d ' ') archive(s)?" || {
+        _x_warn "Stopped; nothing changed."
+        return 1
+    }
+    _x_rveil_run rekey -y -- ${(f)"$(jq -r .id <<<$todo)"}
+}
+
+_x_rveil_rm() {
+    (( $# )) || { _x_help rveil rm; return }
+    local recs todo a
+    recs=$(_x_rveil_records) || return
+    todo=$(for a in "$@"; do
+        local hit=$(_x_rveil_match $a <<<$recs)
+        [[ -n $hit ]] || _x_warn "No archive matches '$a'."
+        print -r -- $hit
+    done | jq -sc 'unique_by(.id)[]')
+    [[ -n $todo ]] || return 1
+    _x_step "To delete from the remote:"
+    _x_rveil_rows "" <<<$todo | sed 's/^/  /' >&2
+    _x_ask_yn "Delete these $(wc -l <<<$todo | tr -d ' ') archive(s) permanently?" || {
+        _x_warn "Stopped; nothing changed."
+        return 1
+    }
+    _x_rveil_run rm -y -- ${(f)"$(jq -r .id <<<$todo)"}
+}
+
+_x_rveil_check() {
+    local -a f_deep
+    zparseopts -D -E -F -- -deep=f_deep || return 1
+    _x_rveil_run check $f_deep
+}
+
+_x_rveil_share() {
+    (( $# == 1 )) || { _x_help rveil share; return }
+    local id message
+    id=$(_x_rveil_one $1) || return
+    message=$(_x_rveil_run share -- $id) || return
+    print -r -- $message
+    if [[ -t 1 ]] && (( $+commands[pbcopy] )); then
+        print -rn -- $message | pbcopy
+        _x_ok "Message copied to the clipboard."
+    fi
+}
+
+_x_rveil_seal() {
+    local -a out
+    zparseopts -D -E -F -- o:=out || return 1
+    (( $# == 1 )) || { _x_help rveil seal; return }
+    _x_rveil_run seal $out -- $1
+}
+
+_x_rveil_open() {
+    local -a dir
+    zparseopts -D -E -F -- C:=dir || return 1
+    (( $# == 1 )) || { _x_help rveil open; return }
+    _x_rveil_run open $dir -- $1
+}
+
+# --- dispatch ------------------------------------------------------------------
+
+# Help and unknown subcommands are x's (see _x_usage_info): only real ones
+# get here.
+local cmd=${1:-}
+(( $# )) && shift
+case $cmd in
+    put)    _x_rveil_put "$@" ;;
+    push)   _x_rveil_push "$@" ;;
+    ls)     _x_rveil_ls "$@" ;;
+    get)    _x_rveil_get "$@" ;;
+    key)    _x_rveil_key "$@" ;;
+    keys)   _x_rveil_keys "$@" ;;
+    rekey)  _x_rveil_rekey "$@" ;;
+    rm)     _x_rveil_rm "$@" ;;
+    check)  _x_rveil_check "$@" ;;
+    share)  _x_rveil_share "$@" ;;
+    seal)   _x_rveil_seal "$@" ;;
+    open)   _x_rveil_open "$@" ;;
+    *)      _x_help rveil; return ;;
+esac

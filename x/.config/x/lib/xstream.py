@@ -1,4 +1,5 @@
-"""Stream and key helpers for `x kdf`, `x seal`, `x unseal` and `x vault`.
+"""Stream and key helpers for `x kdf`, `x seal`, `x unseal`, `x vault` and
+`x rveil`.
 
 Standard library only, run through `uv run --no-project`. Subcommands:
 
@@ -15,6 +16,8 @@ Standard library only, run through `uv run --no-project`. Subcommands:
   meter [--size N] [--label L]           copy stdin to stdout with a progress bar
   rclonebar [--label L]                  progress bar from rclone's JSON log
                                          (--use-json-log --stats) on stdin
+  rveillog --role R ICON SGR…            rveil's JSON log (-vv --use-json-log)
+                                         on stdin, drawn the way x looks
 
 Design notes (see the x README for the whole scheme):
 - Passphrase = base64url(HKDF-SHA256(ikm=master, salt=SALT,
@@ -226,6 +229,138 @@ def cmd_rclonebar(args) -> int:
     return 0
 
 
+def elapsed(seconds: float) -> str:
+    """As _x_elapsed: 4.2s, 3:07, 1:02:03."""
+    return f"{seconds:.1f}s" if seconds < 59.95 else clock(seconds)
+
+
+# What rveil's log events become in x: an outcome line (ok), a heading for
+# each archive it works on (step), a detail (info). Notices and errors are
+# warn and err lines whatever their event. Anything else (step start/end,
+# progress, commands run) only feeds the live line.
+RVEIL_ROLES = {
+    "ok": {"sealed", "pushed", "restored", "rekeyed", "deleted", "key_created",
+           "repaired", "agree", "readded", "verified", "opened"},
+    "step": {"archive"},
+    "info": {"sizes", "older_keys", "passphrase",
+             "index_passphrases", "symlink", "already_pushed", "counts",
+             "shared", "deleted_total", "dropped", "foreign"},
+}
+
+
+def cmd_rveillog(args) -> int:
+    """Draw rveil's JSON log (stdin) on stderr as x commands look: while a step
+    runs, a spinner with its description and elapsed time (as _x_spin), or a
+    progress bar for a transfer (as x gdrive); a line with the role's icon
+    for each outcome, notice and error. Icons and colours come from x.zsh
+    (--role name icon sgr), so X_ICONS and X_COLORS stay the one place to
+    restyle x. X_QUIET=1 keeps only warnings and errors."""
+    import os
+    import select
+    import time
+    out = sys.stderr
+    tty = out.isatty()
+    fancy = tty and not os.environ.get("NO_COLOR")
+    quiet = os.environ.get("X_QUIET", "0") not in ("", "0")
+    roles = {name: (icon, sgr) for name, icon, sgr in args.role}
+
+    def paint(sgr, text):
+        return f"\033[{sgr}m{text}\033[0m" if fancy and sgr else text
+
+    def style(name):
+        return roles.get(name, ("", ""))[1]
+
+    steps = []          # running steps, innermost last: [name, msg, start]
+    bar = None          # the innermost step's last progress event
+    shown, frame = False, 0
+
+    def clear():
+        nonlocal shown
+        if shown:
+            out.write("\r\033[K")
+            shown = False
+
+    def draw():
+        nonlocal shown, frame
+        if not tty or quiet or not steps:
+            return
+        name, msg, start = steps[-1]
+        if bar is not None and bar.get("step") == name:
+            draw_bar(out, msg, bar.get("bytes", 0), bar.get("total", 0),
+                     bar.get("bytes_per_second"), bar.get("eta_seconds"))
+        else:
+            spin = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"[frame % 10]
+            out.write(f"\r\033[K{paint(style('spin'), spin)} {msg} "
+                      f"{paint(style('dim'), elapsed(time.monotonic() - start))}")
+        frame += 1
+        shown = True
+        out.flush()
+
+    def say(role, text):
+        if quiet and role not in ("warn", "err"):
+            return
+        icon, sgr = roles.get(role, ("", ""))
+        if role == "step":
+            text = paint(style("bold"), text)
+        elif role == "info":
+            text = paint(style("dim"), text)
+        clear()
+        out.write(f"{paint(sgr, icon)} {text}\n")
+        draw()
+
+    def handle(line):
+        nonlocal bar
+        try:
+            ev = json.loads(line)
+        except ValueError:
+            if line.strip():
+                say("err", line.strip())
+            return
+        level, event, msg = ev.get("level"), ev.get("event"), ev.get("msg", "")
+        if event == "start":
+            steps.append([ev.get("step"), msg, time.monotonic()])
+            bar = None
+        elif event == "end":
+            for i in range(len(steps) - 1, -1, -1):
+                if steps[i][0] == ev.get("step"):
+                    del steps[i]
+                    break
+            bar = None
+            clear()
+        elif event == "progress":
+            bar = ev
+        if level == "error":
+            say("err", msg)
+        elif level == "notice":
+            say("warn", msg)
+        elif level == "info":
+            for role, events in RVEIL_ROLES.items():
+                if event in events:
+                    say(role, msg)
+                    break
+        draw()
+
+    fd = sys.stdin.fileno()
+    pending = b""
+    while True:
+        ready, _, _ = select.select([fd], [], [], 0.1)
+        if not ready:
+            draw()
+            continue
+        chunk = os.read(fd, 1 << 16)
+        if not chunk:
+            break
+        pending += chunk
+        *lines, pending = pending.split(b"\n")
+        for line in lines:
+            handle(line.decode("utf-8", "replace"))
+    if pending.strip():
+        handle(pending.decode("utf-8", "replace"))
+    clear()
+    out.flush()
+    return 0
+
+
 def cmd_meter(args) -> int:
     """Copy stdin to stdout, drawing a progress bar on stderr (a terminal)."""
     import time
@@ -279,6 +414,10 @@ def main() -> int:
     p = sub.add_parser("rclonebar")
     p.add_argument("--label", default="")
     p.set_defaults(fn=cmd_rclonebar)
+
+    p = sub.add_parser("rveillog")
+    p.add_argument("--role", nargs=3, action="append", default=[], metavar=("NAME", "ICON", "SGR"))
+    p.set_defaults(fn=cmd_rveillog)
 
     p = sub.add_parser("meter")
     p.add_argument("--size", type=int, default=0)
