@@ -1,15 +1,17 @@
-## stream a torrent/url in iina, optionally buffered in RAM
+## stream a torrent/url in iina or akane, optionally buffered in RAM
 #@needs webtorrent
 #@needs-optional iina fzf
 # Usage: x watch [player] [--ram[=GiB]] [-i] [webtorrent flags] <url-or-magnet>
 #
 #   x watch <url-or-magnet>            play in IINA (the default player)
 #   x watch iina <url-or-magnet>       the same, player named explicitly
+#   x watch akane <url-or-magnet>      play in AKANE (Anime4K upscaling)
 #   x watch --ram <url-or-magnet>      buffer on a RAM disk instead of the SSD
 #   x watch --ram=16G <url-or-magnet>  the same, with a 16 GiB RAM disk
 #   x watch -s <url-or-magnet>         list the torrent's files, with indices
 #   x watch -s 3 <url-or-magnet>       stream file 3 (indices are 0-based)
 #   x watch -i <url-or-magnet>         pick the file with fzf
+#   x watch --players                  list the players, default first
 #
 # Every flag except --ram and -i is forwarded to webtorrent untouched (-s, -t,
 # --playlist, --player-args, ...). Flags that take a separate value are known
@@ -49,10 +51,47 @@
 # hatch: its argv path percent-encodes unconditionally, so it double-encodes
 # every URL with a space in it.
 #
+# AKANE: webtorrent has no flag for it, so it runs through webtorrent's --mpv
+# path, which spawns `mpv <mpv flags> <href>...` through sh, with a throwaway
+# `mpv` shim first on PATH that execs AKANE's binary instead. AKANE takes mpv's
+# command-line options, so the flags webtorrent adds (--really-quiet,
+# --loop=no, --sub-file for -t) and --player-args apply as they would to mpv,
+# and --playlist works. --not-on-top drops webtorrent's --ontop. The binary
+# runs in the foreground (not `open -a`), so webtorrent quits when AKANE does,
+# as it does with IINA.
+#
+# --players is for other programs (MyAnimeSeason's player menu reads it), so a
+# new player shows up there without changes on their side.
+#
 # ADDING A PLAYER: define `_x_watch_play_<name>` below, taking the target plus
 # any extra webtorrent args, and add its `x watch <name> <url-or-magnet>` line
 # to the Usage block above (that's what completes it and documents it).
 emulate -L zsh
+
+_x_watch_play_iina() {
+    webtorrent "$1" --iina "${@:2}"
+}
+
+_x_watch_play_akane() {
+    local app bin
+    for app in /Applications/AKANE.app ~/Applications/AKANE.app; do
+        [[ -x $app/Contents/MacOS/AKANE ]] && bin=$app/Contents/MacOS/AKANE && break
+    done
+    if [[ -z $bin ]]; then
+        _x_err "AKANE.app isn't installed (scripts/install_app.sh in the AKANE repo)."
+        return 1
+    fi
+    local shim
+    shim=$(mktemp -d) || return 1
+    print -r -- "#!/bin/sh
+exec ${(q)bin} \"\$@\"" > $shim/mpv
+    chmod +x $shim/mpv
+    {
+        PATH="$shim:$PATH" webtorrent "$1" --mpv --not-on-top "${@:2}"
+    } always {
+        rm -rf -- "$shim"
+    }
+}
 
 local player="iina"
 local ram_enabled=0
@@ -98,6 +137,11 @@ while (( $# )); do
             _x_help -o watch
             return
             ;;
+        --players)
+            local -a known=( ${${(ok)functions[(I)_x_watch_play_*]}#_x_watch_play_} )
+            print -rl -- $player ${known:#$player}
+            return
+            ;;
         -i|--interactive-select)
             # Handled ourselves (fzf), not forwarded to webtorrent.
             interactive_pick=1
@@ -139,10 +183,6 @@ if [[ -z "$target" ]]; then
     _x_help watch
     return
 fi
-
-_x_watch_play_iina() {
-    webtorrent "$1" --iina "${@:2}"
-}
 
 # Fetch the torrent's file list the same way `webtorrent -s` (bare) does,
 # parse its own listing output, and let fzf pick one. Prints the chosen
