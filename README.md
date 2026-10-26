@@ -18,6 +18,7 @@ runtime, so both work from any clone location.
 | `x`       | The `x` personal command dispatcher | `~/.config/x` |
 | `zsh`     | Shell entry points | `~/.zshrc`, `~/.zshenv`, `~/.zprofile`, `~/.myfunctions` |
 | `git`     | Git config | `~/.gitconfig` |
+| `ssh`     | SSH client config | `~/.ssh/config` |
 | `ghostty` | Ghostty terminal config | `~/Library/Application Support/com.mitchellh.ghostty/config.ghostty` |
 | `vscode`  | VS Code keybindings | `~/Library/Application Support/Code/User/keybindings.json` |
 | `claude`  | Global Claude Code instructions | `~/.claude/CLAUDE.md` |

@@ -39,3 +39,8 @@ claude/.claude/*
 
 # Python bytecode (x/.config/x/lib)
 __pycache__/
+
+# And for ssh: ~/.ssh holds private keys and known_hosts — only the config is
+# versioned.
+ssh/.ssh/*
+!ssh/.ssh/config
