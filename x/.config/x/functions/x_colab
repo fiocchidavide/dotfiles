@@ -5,10 +5,6 @@
 #   x colab up [-w] [--gpu G] [--tpu T] [--high-mem]
 #                                    token (unless one is kept), new, clone,
 #                                    tmux
-#   x colab new [--gpu G] [--tpu T] [--high-mem]
-#                                    start a runtime named after the repo: CPU,
-#                                    or GPU T4, L4, G4, H100, A100, or TPU
-#                                    v5e1, v6e1 (--high-mem: Colab Pro)
 #   x colab token [-w] [-d days]     make a token for the repo on GitHub, keep
 #                                    it in 1Password: read-only (-w: can
 #                                    push), for 7 days (-d: other)
@@ -16,23 +12,52 @@
 #                                    into /content
 #   x colab tmux                     attach to the repo's tmux session on the
 #                                    runtime
-#   x colab stop                     release the runtime
-#   x colab status                   runtime, clone and token for this repo
+#   x colab status                   runtime, clone, token and compute units
 #   x colab tokens                   kept tokens: repo, access, expiry
 #   x colab tokens prune             delete the expired ones from 1Password
 #
+#   x colab new [--gpu G] [--tpu T] [--high-mem]
+#                                    start the runtime: CPU, or GPU T4, L4,
+#                                    G4, H100, A100, or TPU v5e1, v6e1
+#                                    (--high-mem: Colab Pro)
+#   x colab stop                     release the runtime
+#   x colab exec [arg…]              run Python from stdin (or -f file)
+#   x colab repl                     an interactive Python REPL
+#   x colab console                  a raw TTY console
+#   x colab restart-kernel           restart the runtime's Python kernel
+#   x colab install <package>…       pip install packages
+#   x colab ls [path]                list files (default /content)
+#   x colab upload <local> <remote>  upload a file
+#   x colab download <remote> <local>
+#                                    download a file
+#   x colab edit <remote>            edit a file
+#   x colab rm <remote>              delete a file
+#   x colab drivemount [path]        mount Google Drive (default
+#                                    /content/drive)
+#   x colab log [arg…]               the runtime's history log
+#
+#   x colab sessions                 all your running runtimes (any repo)
+#   x colab usage                    your compute units: balance and rate
+#
 # Run it in a clone of a GitHub repo: the runtime and its tmux session are
-# named after the repo. token opens GitHub's new-token page filled in for
-# the repo's owner, with Contents access only; choose the repo under "Only
-# select repositories", generate, and paste the token back. It is checked
-# against the repo and kept in 1Password (vault X_COLAB_OP_VAULT, item
-# <owner>/<repo>) until it expires, so new runtimes reuse it. On the runtime
-# it sits in git's credential store, so pull (and push, with -w) just work.
+# named after the repo, and colab's own commands run with -s <repo> (x colab
+# new --gpu T4 is colab new -s <repo> --gpu T4; colab <command> -h has their
+# options). token opens
+# GitHub's new-token page filled in for the repo's owner, with Contents
+# access only; choose the repo under "Only select repositories", generate,
+# and paste the token back. It is checked against the repo and kept in
+# 1Password (vault X_COLAB_OP_VAULT, item <owner>/<repo>) until it expires,
+# so new runtimes reuse it. On the runtime it sits in git's credential
+# store, so pull (and push, with -w) just work. tmux has the mouse on.
 # Detaching from tmux (Ctrl-b d) leaves the runtime running; x colab stop
 # releases it. SSH registers ~/.ssh/id_ed25519.pub with the runtime and
-# forwards nothing. tokens works anywhere; prune leaves the tokens on GitHub,
-# which lists them as expired until you delete them there.
+# forwards nothing. tokens works anywhere; prune leaves the tokens on
+# GitHub, which lists them as expired until you delete them there.
 
+# colab ssh and run are left out (as are pay, readme, skill and update): ssh wants the private key on disk (ours is
+# in 1Password, so _x_colab_ssh sends only the public one), and run makes and
+# releases a VM of its own.
+#
 # Every connection goes through `colab ssh --proxy-mode` as an ssh
 # ProxyCommand given on the command line, so ~/.ssh/config stays untouched.
 # Proxy mode creates a missing session, so clone and tmux first check that
@@ -119,16 +144,21 @@ _x_colab_usable() {
     [[ $1 == read || $(jq -r .access <<<$kept) == write ]]
 }
 
-_x_colab_new() {
-    local -a o_gpu o_tpu o_mem
-    zparseopts -D -F -- -gpu:=o_gpu -tpu:=o_tpu -high-mem=o_mem || return 1
+# _x_colab_pass <command> [arg…]: colab's command on the repo's runtime.
+_x_colab_pass() {
     _x_colab_find_repo || return
+    colab $1 -s $xc_repo "${@:2}"
+}
+
+# _x_colab_start [colab new option…]: start the repo's runtime unless it's
+# running.
+_x_colab_start() {
     if _x_colab_running; then
         _x_ok "Runtime '$xc_repo' is already running."
         return 0
     fi
-    _x_spin "Starting Colab runtime '$xc_repo'${o_gpu[2]:+ (${o_gpu[2]})}${o_tpu[2]:+ (${o_tpu[2]})}" \
-        _x_colab_quiet colab new -s $xc_repo $o_gpu $o_tpu $o_mem
+    _x_spin "Starting Colab runtime '$xc_repo'${*:+ ($*)}" \
+        _x_colab_quiet colab new -s $xc_repo "$@"
 }
 
 _x_colab_token() {
@@ -230,7 +260,7 @@ _x_colab_tmux() {
     local dir=/content/$xc_repo
     _x_colab_ssh -t "command -v tmux >/dev/null || { apt-get update -qq && apt-get install -y -qq tmux >/dev/null; }
 cd ${(qq)dir} 2>/dev/null || cd /content
-exec tmux new -A -s ${(qq)xc_repo}"
+exec tmux new -A -s ${(qq)xc_repo} \\; set -g mouse on"
 }
 
 _x_colab_up() {
@@ -245,18 +275,9 @@ _x_colab_up() {
     else
         _x_colab_token $o_write || return
     fi
-    _x_colab_new $o_gpu $o_tpu $o_mem || return
+    _x_colab_start $o_gpu $o_tpu $o_mem || return
     _x_colab_clone || return
     _x_colab_tmux
-}
-
-_x_colab_stop() {
-    _x_colab_find_repo || return
-    if ! _x_colab_running; then
-        _x_ok "No runtime '$xc_repo' is running."
-        return 0
-    fi
-    _x_spin "Releasing runtime '$xc_repo'" _x_colab_quiet colab stop -s $xc_repo
 }
 
 # Every kept token as "repo<TAB>access<TAB>expires" lines, sorted by repo;
@@ -300,8 +321,9 @@ _x_colab_tokens() {
 _x_colab_status() {
     _x_colab_find_repo || return
     _x_ask_config X_COLAB_OP_VAULT "1Password vault for Colab repo tokens" x-colab || return
-    local line kept dir=/content/$xc_repo hw st left
+    local line kept units dir=/content/$xc_repo hw st left
     line=$(_x_spin -t "Asking Colab about '$xc_repo'" _x_colab_line)
+    units=$(_x_spin -t "Asking Colab for compute units" colab usage 2>/dev/null) || units=
     kept=$(_x_spin -t "Reading the token from 1Password" _x_colab_kept)
 
     _x_heading "$xc_owner/$xc_repo"
@@ -325,6 +347,13 @@ _x_colab_status() {
         else
             _x_item ok "token    $(jq -r .access <<<$kept) until $(jq -r .expires <<<$kept) ($left)"
         fi
+    fi
+    # "Current balance: 198.95 compute units" / "Usage rate: 5.30/hr"
+    local balance=${${(M)${(f)units}:#Current balance: *}#*: } rate=${${(M)${(f)units}:#Usage rate: *}#*: }
+    if [[ -n $balance ]]; then
+        _x_item info "units    ${balance% compute units} left${rate:+, using $rate}"
+    else
+        _x_item warn "units    colab usage said nothing"
     fi
 }
 
@@ -352,13 +381,27 @@ _x_colab_tokens_prune() {
 }
 
 case $1 in
-    up)     shift; _x_colab_up "$@" ;;
-    new)    shift; _x_colab_new "$@" ;;
-    token)  shift; _x_colab_token "$@" ;;
-    clone)  shift; _x_colab_clone "$@" ;;
-    tmux)   shift; _x_colab_tmux "$@" ;;
-    stop)   shift; _x_colab_stop "$@" ;;
-    status) shift; _x_colab_status "$@" ;;
-    tokens) shift; _x_colab_tokens "$@" ;;
-    *)      _x_help colab ;;
+    up)             shift; _x_colab_up "$@" ;;
+    token)          shift; _x_colab_token "$@" ;;
+    clone)          shift; _x_colab_clone "$@" ;;
+    tmux)           shift; _x_colab_tmux "$@" ;;
+    status)         shift; _x_colab_status "$@" ;;
+    tokens)         shift; _x_colab_tokens "$@" ;;
+    new)            _x_colab_pass "$@" ;;
+    stop)           _x_colab_pass "$@" ;;
+    exec)           _x_colab_pass "$@" ;;
+    repl)           _x_colab_pass "$@" ;;
+    console)        _x_colab_pass "$@" ;;
+    restart-kernel) _x_colab_pass "$@" ;;
+    install)        _x_colab_pass "$@" ;;
+    ls)             _x_colab_pass "$@" ;;
+    upload)         _x_colab_pass "$@" ;;
+    download)       _x_colab_pass "$@" ;;
+    edit)           _x_colab_pass "$@" ;;
+    rm)             _x_colab_pass "$@" ;;
+    drivemount)     _x_colab_pass "$@" ;;
+    log)            _x_colab_pass "$@" ;;
+    sessions)       colab "$@" ;;
+    usage)          colab "$@" ;;
+    *)              _x_help colab ;;
 esac

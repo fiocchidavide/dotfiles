@@ -16,4 +16,7 @@ case $sub in
     up)    _arguments '-w[token can push]' $runtime ;;
     new)   _arguments $runtime ;;
     token) _arguments '-w[token can push]' '-d[days the token lasts]:days:(1 7 30 90)' ;;
+    exec|log|ls|upload|download|edit|rm|drivemount)
+           _files ;;
+    install) _message 'package' ;;
 esac
