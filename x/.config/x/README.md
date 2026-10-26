@@ -227,6 +227,29 @@ vault `rveil` and the remote `rveil:rveil`. For Google Drive, give it its own
 OAuth client: an item `rveil` in `X_GDRIVE_OP_VAULT` (scope `drive.file`),
 then `x gdrive -r rveil login`.
 
+## `x colab`: a Colab runtime for the repo you're in
+
+`x colab up`, run in a clone of a GitHub repo, starts a Colab runtime named
+after the repo, clones the repo there and attaches to a tmux session in it.
+Each step is also its own subcommand (`token`, `new`, `clone`, `tmux`,
+`stop`), on top of Google's [`colab` CLI](https://pypi.org/project/google-colab-cli/).
+
+The runtime gets as little as it can work with:
+
+- **A token for this one repo.** `x colab token` opens GitHub's new-token
+  page filled in (owner, Contents read, or write with `-w`, 7 days); GitHub
+  can't prefill the repo, so pick it there. The pasted token is checked
+  against the repo and kept in 1Password (`X_COLAB_OP_VAULT`, item
+  `<owner>/<repo>`) until it expires, so the next runtime reuses it. GitHub
+  has no API to create these tokens, hence the page.
+- **No SSH agent.** ssh reaches the runtime through `colab ssh --proxy-mode`,
+  given on the command line, with agent forwarding off: the runtime can't
+  use your keys. ~/.ssh/config isn't touched.
+
+Install the CLI with `uv tool install google-colab-cli`. It registers
+`~/.ssh/id_ed25519.pub` with the runtime, so that file must hold the public
+half of a key your SSH agent has.
+
 ## Installing
 
 In the dotfiles repo this directory is the `x` stow package. It is the one

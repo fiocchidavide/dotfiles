@@ -1,0 +1,240 @@
+## a Colab runtime for this GitHub repo: start it, clone with a repo-only token, tmux
+#@needs colab gh op jq curl
+# Usage: x colab <command> …
+#
+#   x colab up [-w] [--gpu G] [--tpu T] [--high-mem]
+#                                    token (unless one is kept), new, clone,
+#                                    tmux
+#   x colab new [--gpu G] [--tpu T] [--high-mem]
+#                                    start a runtime named after the repo: CPU,
+#                                    or GPU T4, L4, G4, H100, A100, or TPU
+#                                    v5e1, v6e1 (--high-mem: Colab Pro)
+#   x colab token [-w] [-d days]     make a token for the repo on GitHub, keep
+#                                    it in 1Password: read-only (-w: can
+#                                    push), for 7 days (-d: other)
+#   x colab clone                    give the runtime the token, clone the repo
+#                                    into /content
+#   x colab tmux                     attach to the repo's tmux session on the
+#                                    runtime
+#   x colab stop                     release the runtime
+#
+# Run it in a clone of a GitHub repo: the runtime and its tmux session are
+# named after the repo. token opens GitHub's new-token page filled in for
+# the repo's owner, with Contents access only; choose the repo under "Only
+# select repositories", generate, and paste the token back. It is checked
+# against the repo and kept in 1Password (vault X_COLAB_OP_VAULT, item
+# <owner>/<repo>) until it expires, so new runtimes reuse it. On the runtime
+# it sits in git's credential store, so pull (and push, with -w) just work.
+# Detaching from tmux (Ctrl-b d) leaves the runtime running; x colab stop
+# releases it. SSH registers ~/.ssh/id_ed25519.pub with the runtime and
+# forwards nothing.
+
+# Every connection goes through `colab ssh --proxy-mode` as an ssh
+# ProxyCommand given on the command line, so ~/.ssh/config stays untouched.
+# Proxy mode creates a missing session, so clone and tmux first check that
+# the runtime exists: only new and up start one. Each runtime is a fresh
+# machine with a new host key, hence no host key checking. The token reaches
+# 1Password, curl and the runtime on stdin only.
+
+emulate -L zsh
+setopt extended_glob pipe_fail
+
+local xc_pub=$HOME/.ssh/id_ed25519.pub
+local xc_owner xc_repo
+xc_repo=$(_x_spin -t "Finding the GitHub repo" \
+    gh repo view --json owner,name --jq '.owner.login + "/" + .name' 2>/dev/null) || {
+    _x_err "Not in a GitHub repo (gh repo view found none)."
+    return 1
+}
+xc_owner=${xc_repo%%/*} xc_repo=${xc_repo#*/}
+
+# _x_colab_quiet <cmd…>: run colab quietly, showing its output only on failure.
+_x_colab_quiet() {
+    local out
+    out=$("$@" 2>&1) || { print -ru2 -- $out; return 1 }
+}
+
+_x_colab_running() {
+    colab status -s $xc_repo 2>/dev/null | grep -qF "[$xc_repo] "
+}
+
+_x_colab_need_runtime() {
+    _x_colab_running && return 0
+    _x_err "No runtime '$xc_repo' is running. Start one with: x colab new"
+    return 1
+}
+
+# _x_colab_ssh [ssh option…] <remote command>: ssh into the runtime.
+_x_colab_ssh() {
+    if [[ ! -r $xc_pub ]]; then
+        _x_err "colab ssh registers ${xc_pub/#$HOME/~} with the runtime, and it's missing."
+        _x_info "Save the public key of your Colab SSH key there (1Password can export it)."
+        return 1
+    fi
+    # The runtime has no terminfo for most local terminals; tmux needs one.
+    TERM=xterm-256color ssh -o "ProxyCommand=colab ssh --proxy-mode -s $xc_repo" \
+        -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR \
+        -o IdentityFile=$xc_pub -o IdentitiesOnly=yes -o ForwardAgent=no \
+        "${@[1,-2]}" root@colab-$xc_repo "${@[-1]}"
+}
+
+# The kept token as {token, access, expires}, or nothing (status 0).
+_x_colab_kept() {
+    op item get "$xc_owner/$xc_repo" --vault $X_COLAB_OP_VAULT --format json 2>/dev/null |
+        jq -c '[.fields[]? | {(.label): (.value // "")}] | add
+               | {token: (.credential // ""), access: (.access // ""), expires: (.["expires on"] // "")}' ||
+        true
+}
+
+# _x_colab_usable <access>: a kept token exists, hasn't expired and allows
+# that access (write also reads).
+_x_colab_usable() {
+    local kept=$(_x_colab_kept)
+    [[ -n $kept ]] || return 1
+    [[ $(jq -r .expires <<<$kept) > $(date +%F) ]] || return 1
+    [[ $1 == read || $(jq -r .access <<<$kept) == write ]]
+}
+
+_x_colab_new() {
+    local -a o_gpu o_tpu o_mem
+    zparseopts -D -F -- -gpu:=o_gpu -tpu:=o_tpu -high-mem=o_mem || return 1
+    if _x_colab_running; then
+        _x_ok "Runtime '$xc_repo' is already running."
+        return 0
+    fi
+    _x_spin "Starting Colab runtime '$xc_repo'${o_gpu[2]:+ (${o_gpu[2]})}${o_tpu[2]:+ (${o_tpu[2]})}" \
+        _x_colab_quiet colab new -s $xc_repo $o_gpu $o_tpu $o_mem
+}
+
+_x_colab_token() {
+    local -a o_write o_days
+    zparseopts -D -F -- w=o_write d:=o_days || return 1
+    local days=${o_days[2]:-7} access=read
+    (( $#o_write )) && access=write
+    if [[ $days != <1-366> ]]; then
+        _x_err "-d takes a number of days (1 to 366)."
+        return 1
+    fi
+    _x_ask_config X_COLAB_OP_VAULT "1Password vault for Colab repo tokens" x-colab || return
+    if ! op vault get $X_COLAB_OP_VAULT >/dev/null 2>&1; then
+        _x_ask_yn "Create the 1Password vault '$X_COLAB_OP_VAULT' for repo tokens?" || {
+            _x_warn "Stopped; nothing was created."
+            return 1
+        }
+        _x_spin "Creating vault $X_COLAB_OP_VAULT" \
+            op vault create $X_COLAB_OP_VAULT >/dev/null || return
+    fi
+
+    # Token names must be unique on the account, hence the date.
+    local expires=$(date -v+${days}d +%F) url
+    url=$(jq -rn --arg name "colab ${xc_repo[1,23]} $(date +%F)" \
+        --arg desc "x colab: contents $access on $xc_owner/$xc_repo" \
+        --arg owner $xc_owner --arg days $days --arg access $access \
+        '"https://github.com/settings/personal-access-tokens/new?name=\($name | @uri)"
+         + "&description=\($desc | @uri)&target_name=\($owner | @uri)"
+         + "&expires_in=\($days)&contents=\($access)"')
+    _x_step "Opening GitHub's new-token page for $xc_owner ($access, $days days)"
+    _x_info "Under Repository access choose \"Only select repositories\" → $xc_repo, then Generate token."
+    open $url
+
+    local tok
+    _x_ask tok "$(_x_icon ask) Paste the token: " -s || { _x_warn "Stopped; no token kept."; return 1 }
+    if [[ $tok != github_pat_[A-Za-z0-9_]## ]]; then
+        _x_err "That isn't a fine-grained token (they start with github_pat_)."
+        return 1
+    fi
+    print -r -- "Authorization: Bearer $tok" |
+        _x_spin "Checking it can read $xc_owner/$xc_repo" \
+            curl -fsS -o /dev/null -H @- https://api.github.com/repos/$xc_owner/$xc_repo || {
+        _x_info "Was $xc_repo selected under Repository access?"
+        return 1
+    }
+
+    if [[ -n $(_x_colab_kept) ]]; then
+        op item delete "$xc_owner/$xc_repo" --vault $X_COLAB_OP_VAULT >/dev/null || return
+    fi
+    jq -n --arg title "$xc_owner/$xc_repo" --arg tok $tok --arg access $access --arg expires $expires '{
+        title: $title, category: "API_CREDENTIAL",
+        fields: [
+          {id: "credential", type: "CONCEALED", label: "credential", value: $tok},
+          {id: "access", type: "STRING", label: "access", value: $access},
+          {id: "expires_on", type: "STRING", label: "expires on", value: $expires},
+          {id: "notesPlain", type: "STRING", purpose: "NOTES", label: "notesPlain",
+           value: "Fine-grained GitHub token for \($title) only (contents: \($access)), made by x colab token for Colab runtimes. Revoke it at github.com/settings/personal-access-tokens."}
+        ]}' |
+        _x_spin "Keeping it in 1Password ($X_COLAB_OP_VAULT/$xc_owner/$xc_repo, until $expires)" \
+            op item create --vault $X_COLAB_OP_VAULT - >/dev/null
+}
+
+_x_colab_clone() {
+    _x_ask_config X_COLAB_OP_VAULT "1Password vault for Colab repo tokens" x-colab || return
+    _x_colab_need_runtime || return
+    local kept tok
+    kept=$(_x_spin -t "Reading the token from 1Password" _x_colab_kept)
+    tok=$(jq -r '.token // empty' <<<$kept)
+    if [[ -z $tok ]]; then
+        _x_err "No token kept for $xc_owner/$xc_repo. Make one with: x colab token"
+        return 1
+    fi
+    [[ $(jq -r .expires <<<$kept) > $(date +%F) ]] ||
+        _x_warn "The kept token expired on $(jq -r .expires <<<$kept); make a new one with: x colab token"
+
+    local name=$(git config user.name) email=$(git config user.email)
+    local dir=/content/$xc_repo
+    local remote="set -e
+IFS= read -r t
+git config --global credential.helper store
+printf 'protocol=https\nhost=github.com\nusername=x-access-token\npassword=%s\n\n' \"\$t\" | git credential approve
+${name:+git config --global user.name ${(qq)name}}
+${email:+git config --global user.email ${(qq)email}}
+if [ -d ${(qq)dir}/.git ]; then echo already; else git clone -q ${(qq):-https://github.com/$xc_owner/$xc_repo.git} ${(qq)dir}; fi"
+    local out
+    out=$(print -r -- $tok | _x_spin -t "Cloning $xc_owner/$xc_repo on the runtime" _x_colab_ssh $remote) || return
+    if [[ $out == already ]]; then
+        _x_ok "Token updated; $dir was already cloned."
+    else
+        _x_ok "Cloned into $dir"
+    fi
+}
+
+_x_colab_tmux() {
+    _x_colab_need_runtime || return
+    local dir=/content/$xc_repo
+    _x_colab_ssh -t "command -v tmux >/dev/null || { apt-get update -qq && apt-get install -y -qq tmux >/dev/null; }
+cd ${(qq)dir} 2>/dev/null || cd /content
+exec tmux new -A -s ${(qq)xc_repo}"
+}
+
+_x_colab_up() {
+    local -a o_write o_gpu o_tpu o_mem
+    zparseopts -D -F -- w=o_write -gpu:=o_gpu -tpu:=o_tpu -high-mem=o_mem || return 1
+    local access=read
+    (( $#o_write )) && access=write
+    _x_ask_config X_COLAB_OP_VAULT "1Password vault for Colab repo tokens" x-colab || return
+    if _x_spin -t "Looking for a kept $access token" _x_colab_usable $access; then
+        _x_ok "Using the $access token kept in 1Password."
+    else
+        _x_colab_token $o_write || return
+    fi
+    _x_colab_new $o_gpu $o_tpu $o_mem || return
+    _x_colab_clone || return
+    _x_colab_tmux
+}
+
+_x_colab_stop() {
+    if ! _x_colab_running; then
+        _x_ok "No runtime '$xc_repo' is running."
+        return 0
+    fi
+    _x_spin "Releasing runtime '$xc_repo'" _x_colab_quiet colab stop -s $xc_repo
+}
+
+case $1 in
+    up)    shift; _x_colab_up "$@" ;;
+    new)   shift; _x_colab_new "$@" ;;
+    token) shift; _x_colab_token "$@" ;;
+    clone) shift; _x_colab_clone "$@" ;;
+    tmux)  shift; _x_colab_tmux "$@" ;;
+    stop)  shift; _x_colab_stop "$@" ;;
+    *)     _x_help colab ;;
+esac

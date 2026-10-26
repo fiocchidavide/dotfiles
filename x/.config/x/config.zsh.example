@@ -44,3 +44,8 @@ X_GDRIVE_REMOTE="drive"
 X_RVEIL_KEYSTORE=""     # op:<1Password vault> (default op:rveil) or file:<path>
 X_RVEIL_REMOTE=""       # rclone path of the archive folder (default rveil:rveil)
 X_RVEIL_STAGING=""      # where put seals archives before push
+
+# --- x colab ----------------------------------------------------------------
+# 1Password vault for the repo tokens x colab token keeps, one item per
+# <owner>/<repo>. Asked for on first use.
+X_COLAB_OP_VAULT="x-colab"

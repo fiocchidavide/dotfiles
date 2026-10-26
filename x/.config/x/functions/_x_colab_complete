@@ -1,0 +1,19 @@
+# Completion hook for what follows `x colab <subcommand>` (x completes the
+# subcommands, from the Usage block); words[3] is the subcommand.
+
+local sub=${words[3]}
+local -a runtime=(
+    '--gpu[GPU accelerator]:gpu:(T4 L4 G4 H100 A100)'
+    '--tpu[TPU accelerator]:tpu:(v5e1 v6e1)'
+    '--high-mem[high-RAM machine]'
+)
+
+# _arguments counts arguments from words[2]: drop `x colab`.
+shift 2 words
+(( CURRENT -= 2 ))
+
+case $sub in
+    up)    _arguments '-w[token can push]' $runtime ;;
+    new)   _arguments $runtime ;;
+    token) _arguments '-w[token can push]' '-d[days the token lasts]:days:(1 7 30 90)' ;;
+esac

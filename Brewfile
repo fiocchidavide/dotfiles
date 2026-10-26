@@ -13,11 +13,11 @@ brew "m1ddc"          # x shine
 brew "openconnect"    # x connect
 brew "rclone"         # x serve webdav, x gdrive, x rveil
 brew "uv"             # x ocr, x datalab, x gdrive, x rveil, mas
-brew "jq"             # x gdrive, x serve, x rveil  (macOS 15+ also ships one)
+brew "jq"             # x gdrive, x serve, x rveil, x colab  (macOS 15+ also ships one)
 
 # --- dotfiles / shell tooling ---
 brew "stow"           # dotfiles symlink management
-brew "gh"             # git credential helper for github.com (.gitconfig)
+brew "gh"             # git credential helper for github.com (.gitconfig), x colab
 brew "fnm"            # node version manager (provides node for webtorrent)
 brew "pnpm"           # installs webtorrent-cli (see below)
 brew "zoxide"
@@ -25,12 +25,13 @@ brew "fzf"            # also x watch -i (optional)
 brew "pure"           # prompt
 
 # --- casks ---
-cask "1password-cli"  # x connect, x datalab, x gdrive, x serve, x rveil  (op)
+cask "1password-cli"  # x connect, x datalab, x gdrive, x serve, x rveil, x colab  (op)
 cask "iina"           # x watch iina
 
 # --- not available via Homebrew (install manually) ---
 #   webtorrent-cli   ->  pnpm add -g webtorrent-cli   (x watch)
 #   tailscale        ->  the macOS app ships the CLI   (x serve)
 #   rveil            ->  go install davidefiocchi.com/rveil@latest   (x rveil)
+#   colab            ->  uv tool install google-colab-cli   (x colab)
 #   oh-my-zsh and its plugins (fzf-tab, zsh-syntax-highlighting,
 #   zsh-autosuggestions) -> make omz, which keeps this repo's ~/.zshrc
