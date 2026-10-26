@@ -241,7 +241,10 @@ The runtime gets as little as it can work with:
   can't prefill the repo, so pick it there. The pasted token is checked
   against the repo and kept in 1Password (`X_COLAB_OP_VAULT`, item
   `<owner>/<repo>`) until it expires, so the next runtime reuses it. GitHub
-  has no API to create these tokens, hence the page.
+  has no API to create these tokens, hence the page. `x colab tokens` lists
+  what's kept and when it expires; `x colab tokens prune` deletes the
+  expired ones from 1Password (GitHub keeps listing them until you delete
+  them there).
 - **No SSH agent.** ssh reaches the runtime through `colab ssh --proxy-mode`,
   given on the command line, with agent forwarding off: the runtime can't
   use your keys. ~/.ssh/config isn't touched.

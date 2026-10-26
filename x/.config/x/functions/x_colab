@@ -17,6 +17,8 @@
 #   x colab tmux                     attach to the repo's tmux session on the
 #                                    runtime
 #   x colab stop                     release the runtime
+#   x colab tokens                   kept tokens: repo, access, expiry
+#   x colab tokens prune             delete the expired ones from 1Password
 #
 # Run it in a clone of a GitHub repo: the runtime and its tmux session are
 # named after the repo. token opens GitHub's new-token page filled in for
@@ -27,7 +29,8 @@
 # it sits in git's credential store, so pull (and push, with -w) just work.
 # Detaching from tmux (Ctrl-b d) leaves the runtime running; x colab stop
 # releases it. SSH registers ~/.ssh/id_ed25519.pub with the runtime and
-# forwards nothing.
+# forwards nothing. tokens works anywhere; prune leaves the tokens on GitHub,
+# which lists them as expired until you delete them there.
 
 # Every connection goes through `colab ssh --proxy-mode` as an ssh
 # ProxyCommand given on the command line, so ~/.ssh/config stays untouched.
@@ -41,12 +44,17 @@ setopt extended_glob pipe_fail
 
 local xc_pub=$HOME/.ssh/id_ed25519.pub
 local xc_owner xc_repo
-xc_repo=$(_x_spin -t "Finding the GitHub repo" \
-    gh repo view --json owner,name --jq '.owner.login + "/" + .name' 2>/dev/null) || {
-    _x_err "Not in a GitHub repo (gh repo view found none)."
-    return 1
+
+# Sets xc_owner and xc_repo from the repo we're in (once).
+_x_colab_find_repo() {
+    [[ -n $xc_repo ]] && return 0
+    xc_repo=$(_x_spin -t "Finding the GitHub repo" \
+        gh repo view --json owner,name --jq '.owner.login + "/" + .name' 2>/dev/null) || {
+        _x_err "Not in a GitHub repo (gh repo view found none)."
+        return 1
+    }
+    xc_owner=${xc_repo%%/*} xc_repo=${xc_repo#*/}
 }
-xc_owner=${xc_repo%%/*} xc_repo=${xc_repo#*/}
 
 # _x_colab_quiet <cmd…>: run colab quietly, showing its output only on failure.
 _x_colab_quiet() {
@@ -98,6 +106,7 @@ _x_colab_usable() {
 _x_colab_new() {
     local -a o_gpu o_tpu o_mem
     zparseopts -D -F -- -gpu:=o_gpu -tpu:=o_tpu -high-mem=o_mem || return 1
+    _x_colab_find_repo || return
     if _x_colab_running; then
         _x_ok "Runtime '$xc_repo' is already running."
         return 0
@@ -115,6 +124,7 @@ _x_colab_token() {
         _x_err "-d takes a number of days (1 to 366)."
         return 1
     fi
+    _x_colab_find_repo || return
     _x_ask_config X_COLAB_OP_VAULT "1Password vault for Colab repo tokens" x-colab || return
     if ! op vault get $X_COLAB_OP_VAULT >/dev/null 2>&1; then
         _x_ask_yn "Create the 1Password vault '$X_COLAB_OP_VAULT' for repo tokens?" || {
@@ -167,6 +177,7 @@ _x_colab_token() {
 }
 
 _x_colab_clone() {
+    _x_colab_find_repo || return
     _x_ask_config X_COLAB_OP_VAULT "1Password vault for Colab repo tokens" x-colab || return
     _x_colab_need_runtime || return
     local kept tok
@@ -198,6 +209,7 @@ if [ -d ${(qq)dir}/.git ]; then echo already; else git clone -q ${(qq):-https://
 }
 
 _x_colab_tmux() {
+    _x_colab_find_repo || return
     _x_colab_need_runtime || return
     local dir=/content/$xc_repo
     _x_colab_ssh -t "command -v tmux >/dev/null || { apt-get update -qq && apt-get install -y -qq tmux >/dev/null; }
@@ -210,6 +222,7 @@ _x_colab_up() {
     zparseopts -D -F -- w=o_write -gpu:=o_gpu -tpu:=o_tpu -high-mem=o_mem || return 1
     local access=read
     (( $#o_write )) && access=write
+    _x_colab_find_repo || return
     _x_ask_config X_COLAB_OP_VAULT "1Password vault for Colab repo tokens" x-colab || return
     if _x_spin -t "Looking for a kept $access token" _x_colab_usable $access; then
         _x_ok "Using the $access token kept in 1Password."
@@ -222,6 +235,7 @@ _x_colab_up() {
 }
 
 _x_colab_stop() {
+    _x_colab_find_repo || return
     if ! _x_colab_running; then
         _x_ok "No runtime '$xc_repo' is running."
         return 0
@@ -229,12 +243,74 @@ _x_colab_stop() {
     _x_spin "Releasing runtime '$xc_repo'" _x_colab_quiet colab stop -s $xc_repo
 }
 
+# Every kept token as "repo<TAB>access<TAB>expires" lines, sorted by repo;
+# nothing if the vault is empty or missing.
+_x_colab_kept_all() {
+    local items
+    items=$(op item list --vault $X_COLAB_OP_VAULT --format json 2>/dev/null) || return 0
+    [[ $(jq length <<<$items) == 0 ]] && return 0
+    # op reads the list only from a pipe, not a here-string's file.
+    print -r -- $items | op item get - --format json |
+        jq -sr 'map({title, f: ([.fields[]? | {(.label): (.value // "")}] | add)})
+                | sort_by(.title)[] | [.title, (.f.access // "?"), (.f["expires on"] // "?")] | @tsv'
+}
+
+_x_colab_tokens() {
+    local cmd=${1:-}
+    (( $# )) && shift
+    case $cmd in
+        prune)  _x_colab_tokens_prune "$@"; return ;;
+        "")     ;;
+        *)      _x_help colab tokens; return ;;
+    esac
+    _x_ask_config X_COLAB_OP_VAULT "1Password vault for Colab repo tokens" x-colab || return
+    local kept repo access expires today=$(date +%F) left
+    kept=$(_x_spin -t "Reading tokens from 1Password" _x_colab_kept_all) || return
+    if [[ -z $kept ]]; then
+        _x_info "No tokens kept in $X_COLAB_OP_VAULT. Make one in a repo with: x colab token"
+        return 0
+    fi
+    _x_heading "$(printf '    %-32s %-6s %s' repo access expires)"
+    while IFS=$'\t' read -r repo access expires; do
+        if [[ $expires > $today ]]; then
+            left=$(( ($(date -j -f %F $expires +%s) - $(date -j -f %F $today +%s)) / 86400 ))
+            _x_item ok "$(printf '%-32s %-6s %s' $repo $access "$expires ($left day${${left:#1}:+s} left)")"
+        else
+            _x_item err "$(printf '%-32s %-6s %s' $repo $access "$expires (expired)")"
+        fi
+    done <<<$kept
+}
+
+_x_colab_tokens_prune() {
+    _x_ask_config X_COLAB_OP_VAULT "1Password vault for Colab repo tokens" x-colab || return
+    local kept today=$(date +%F) repo access expires
+    local -a gone
+    kept=$(_x_spin -t "Reading tokens from 1Password" _x_colab_kept_all) || return
+    while IFS=$'\t' read -r repo access expires; do
+        [[ -n $repo && ! $expires > $today ]] && gone+=($repo)
+    done <<<$kept
+    if (( ! $#gone )); then
+        _x_ok "No expired tokens in $X_COLAB_OP_VAULT."
+        return 0
+    fi
+    _x_info "Expired: ${(j:, :)gone}"
+    _x_ask_yn "Delete ${#gone} expired token${${#gone:#1}:+s} from 1Password?" || {
+        _x_warn "Stopped; nothing was deleted."
+        return 1
+    }
+    for repo in $gone; do
+        _x_spin "Deleting $repo" op item delete $repo --vault $X_COLAB_OP_VAULT || return
+    done
+    _x_info "GitHub still lists them as expired: github.com/settings/personal-access-tokens"
+}
+
 case $1 in
-    up)    shift; _x_colab_up "$@" ;;
-    new)   shift; _x_colab_new "$@" ;;
-    token) shift; _x_colab_token "$@" ;;
-    clone) shift; _x_colab_clone "$@" ;;
-    tmux)  shift; _x_colab_tmux "$@" ;;
-    stop)  shift; _x_colab_stop "$@" ;;
-    *)     _x_help colab ;;
+    up)     shift; _x_colab_up "$@" ;;
+    new)    shift; _x_colab_new "$@" ;;
+    token)  shift; _x_colab_token "$@" ;;
+    clone)  shift; _x_colab_clone "$@" ;;
+    tmux)   shift; _x_colab_tmux "$@" ;;
+    stop)   shift; _x_colab_stop "$@" ;;
+    tokens) shift; _x_colab_tokens "$@" ;;
+    *)      _x_help colab ;;
 esac
