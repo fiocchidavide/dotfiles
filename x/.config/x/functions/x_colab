@@ -17,6 +17,7 @@
 #   x colab tmux                     attach to the repo's tmux session on the
 #                                    runtime
 #   x colab stop                     release the runtime
+#   x colab status                   runtime, clone and token for this repo
 #   x colab tokens                   kept tokens: repo, access, expiry
 #   x colab tokens prune             delete the expired ones from 1Password
 #
@@ -62,8 +63,23 @@ _x_colab_quiet() {
     out=$("$@" 2>&1) || { print -ru2 -- $out; return 1 }
 }
 
-_x_colab_running() {
-    colab status -s $xc_repo 2>/dev/null | grep -qF "[$xc_repo] "
+# The runtime's line from colab status ("[name] endpoint | Hardware: … |
+# Status: IDLE"), or nothing if it isn't running.
+_x_colab_line() {
+    colab status -s $xc_repo 2>/dev/null | grep -m1 -F "[$xc_repo] " || true
+}
+
+_x_colab_running() { [[ -n $(_x_colab_line) ]] }
+
+# _x_colab_left <expires>: "3 days left", or "expired" on and after that day.
+_x_colab_left() {
+    local today=$(date +%F) n
+    if [[ $1 > $today ]]; then
+        n=$(( ($(date -j -f %F $1 +%s) - $(date -j -f %F $today +%s)) / 86400 ))
+        print -r -- "$n day${${n:#1}:+s} left"
+    else
+        print expired
+    fi
 }
 
 _x_colab_need_runtime() {
@@ -264,7 +280,7 @@ _x_colab_tokens() {
         *)      _x_help colab tokens; return ;;
     esac
     _x_ask_config X_COLAB_OP_VAULT "1Password vault for Colab repo tokens" x-colab || return
-    local kept repo access expires today=$(date +%F) left
+    local kept repo access expires left
     kept=$(_x_spin -t "Reading tokens from 1Password" _x_colab_kept_all) || return
     if [[ -z $kept ]]; then
         _x_info "No tokens kept in $X_COLAB_OP_VAULT. Make one in a repo with: x colab token"
@@ -272,13 +288,44 @@ _x_colab_tokens() {
     fi
     _x_heading "$(printf '    %-32s %-6s %s' repo access expires)"
     while IFS=$'\t' read -r repo access expires; do
-        if [[ $expires > $today ]]; then
-            left=$(( ($(date -j -f %F $expires +%s) - $(date -j -f %F $today +%s)) / 86400 ))
-            _x_item ok "$(printf '%-32s %-6s %s' $repo $access "$expires ($left day${${left:#1}:+s} left)")"
+        left=$(_x_colab_left $expires)
+        if [[ $left == expired ]]; then
+            _x_item err "$(printf '%-32s %-6s %s' $repo $access "$expires ($left)")"
         else
-            _x_item err "$(printf '%-32s %-6s %s' $repo $access "$expires (expired)")"
+            _x_item ok "$(printf '%-32s %-6s %s' $repo $access "$expires ($left)")"
         fi
     done <<<$kept
+}
+
+_x_colab_status() {
+    _x_colab_find_repo || return
+    _x_ask_config X_COLAB_OP_VAULT "1Password vault for Colab repo tokens" x-colab || return
+    local line kept dir=/content/$xc_repo hw st left
+    line=$(_x_spin -t "Asking Colab about '$xc_repo'" _x_colab_line)
+    kept=$(_x_spin -t "Reading the token from 1Password" _x_colab_kept)
+
+    _x_heading "$xc_owner/$xc_repo"
+    if [[ -n $line ]]; then
+        hw=${${line#*Hardware: }%% |*} st=${${line#*Status: }%% |*}
+        _x_item on "runtime  running: $hw, $st"
+        if _x_spin -t "Looking for the clone" _x_colab_ssh "test -d ${(qq)dir}/.git" </dev/null; then
+            _x_item ok "clone    $dir"
+        else
+            _x_item off "clone    not there (x colab clone)"
+        fi
+    else
+        _x_item off "runtime  not running (x colab new)"
+    fi
+    if [[ -z $kept ]]; then
+        _x_item off "token    none kept (x colab token)"
+    else
+        left=$(_x_colab_left $(jq -r .expires <<<$kept))
+        if [[ $left == expired ]]; then
+            _x_item err "token    $(jq -r .access <<<$kept), expired on $(jq -r .expires <<<$kept) (x colab token)"
+        else
+            _x_item ok "token    $(jq -r .access <<<$kept) until $(jq -r .expires <<<$kept) ($left)"
+        fi
+    fi
 }
 
 _x_colab_tokens_prune() {
@@ -311,6 +358,7 @@ case $1 in
     clone)  shift; _x_colab_clone "$@" ;;
     tmux)   shift; _x_colab_tmux "$@" ;;
     stop)   shift; _x_colab_stop "$@" ;;
+    status) shift; _x_colab_status "$@" ;;
     tokens) shift; _x_colab_tokens "$@" ;;
     *)      _x_help colab ;;
 esac
