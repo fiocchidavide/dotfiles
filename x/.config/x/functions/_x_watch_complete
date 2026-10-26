@@ -5,6 +5,7 @@ shift words
 (( CURRENT-- ))
 _arguments \
     '--ram=-[buffer on a RAM disk (size in GiB, default 8)]::size in GiB:' \
+    '--players[list the players, default first]' \
     '-i[pick the file to stream with fzf]' \
     '-s[list the files, or stream file N]::file index:' \
     '*:torrent file, URL or magnet:_files -g "*.torrent(-.)"'
