@@ -184,6 +184,7 @@ Each rclone remote is one item in the 1Password vault `X_GDRIVE_OP_VAULT`
 |---|---|---|
 | `rveil` | `drive.file` | `x rveil` (rveil's default remote): its token reaches only files that client created |
 | `drive` | `drive` | `x gdrive` by default (`X_GDRIVE_REMOTE`); `-r <remote>` picks another |
+| `restic-<host>` | `drive.file` | restic on a server, deployed there with `x gdrive deploy` |
 
 - `x gdrive remotes` lists the items and whether each is connected, needs
   filling in, or changed since the last login.
@@ -191,6 +192,13 @@ Each rclone remote is one item in the 1Password vault `X_GDRIVE_OP_VAULT`
 - `x gdrive -r <name> login` creates or updates the rclone remote from its
   item and authorises it in the browser. Change the scope or client in
   1Password, then log in again to apply it.
+- `x gdrive -r <name> deploy <ssh-host>` gives a server the remote: it
+  copies the remote's section (client and token) into the server's
+  `rclone.conf` over SSH, on stdin, replacing only that section (mode 600),
+  then deletes the remote here. Delete, not log out: logging out revokes the
+  token, which the server now uses. So a server's token lives only on the
+  server; to replace it, log in here and deploy again. `--keep` leaves the
+  local copy; `--config <path>` picks the server's `rclone.conf`.
 
 `drive.file` access is per OAuth *client*, so with separate clients one
 remote's token can't see what another uploads. The general remote (full

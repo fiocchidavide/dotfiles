@@ -1,5 +1,5 @@
 ## Google Drive from the terminal: remotes from 1Password, up, down, ls, link (rclone)
-#@needs rclone jq op uv
+#@needs rclone jq op uv ssh
 # Usage: x gdrive [-r remote] <command> …
 #
 #   x gdrive remotes                list the OAuth clients in 1Password and their state
@@ -11,6 +11,10 @@
 #   x gdrive login                  create or update the remote from its 1Password
 #                                   item, then authorise in the browser
 #   x gdrive logout                 forget the remote and its token
+#   x gdrive deploy [--config path] [--keep] <ssh-host>
+#                                   copy the remote (client and token) into
+#                                   rclone.conf on another machine, then remove it
+#                                   here without revoking it (--keep: keep it here)
 #   x gdrive status                 remote, scope and quota
 #   x gdrive ls [-R] [dir]          list a folder (-R: recursively)
 #   x gdrive up [-d dir] [--move] <local>…
@@ -41,6 +45,11 @@
 # "client id", "client secret" and "scope" (drive.file, drive, drive.readonly,
 # drive.appfolder or drive.metadata.readonly). Change them in 1Password and run
 # `x gdrive -r <name> login` to apply. Remote paths are relative to the Drive root ("Photos/2019").
+#
+# A server gets a remote by logging it in here and deploying it there:
+# `x gdrive -r <name> login`, then `x gdrive -r <name> deploy <host>`. After
+# that only the server holds the token; repeat both to replace it. deploy
+# writes to rclone's own rclone.conf for the SSH user unless given --config.
 
 emulate -L zsh
 setopt extended_glob pipe_fail
@@ -222,6 +231,62 @@ _x_gdrive_logout() {
     _x_info "Also revoke access at https://myaccount.google.com/connections if you like."
 }
 
+# Runs on the other machine as `sh -c <this> sh <remote> [config]`, with the
+# remote's rclone.conf section on stdin: replaces that section in the config
+# (rclone's default path when none is given), keeps it mode 600, and prints
+# the config's path.
+local xg_deploy_sh='set -eu
+name=$1 conf=${2:-}
+[ -n "$conf" ] || conf=$(rclone config file 2>/dev/null | tail -n 1) || true
+[ -n "$conf" ] || conf=$HOME/.config/rclone/rclone.conf
+umask 077
+mkdir -p "$(dirname "$conf")"
+[ -e "$conf" ] || : > "$conf"
+tmp=$(mktemp "$conf.XXXXXX")
+trap '"'"'rm -f "$tmp"'"'"' EXIT
+awk -v head="[$name]" '"'"'/^\[/ { skip = ($0 == head) } !skip'"'"' "$conf" |
+    awk '"'"'NF { for (; blank > 0; blank--) print ""; print; next } { blank++ }'"'"' > "$tmp"
+{ [ -s "$tmp" ] && echo; cat; } >> "$tmp"
+chmod 600 "$tmp"
+mv "$tmp" "$conf"
+trap - EXIT
+echo "$conf"'
+
+_x_gdrive_deploy() {
+    local -a o_config f_keep
+    zparseopts -D -E -F -- -config:=o_config -keep=f_keep || return 1
+    if (( $# != 1 )); then
+        _x_help gdrive deploy
+        return
+    fi
+    _x_gdrive_ready || return
+    local host=$1 section conf
+    # The section as rclone.conf writes it; the token is a JSON string value.
+    section=$(_x_gdrive_rclone_conf $xg_remote |
+        jq -r --arg r $xg_remote '"[\($r)]", (to_entries[] | "\(.key) = \(.value)")') || return
+    # The section (client and token) goes on stdin; argv has only names and paths.
+    conf=$(print -r -- $section |
+        _x_spin -t "Copying remote '$xg_remote' to $host" \
+            ssh -o BatchMode=yes -- $host \
+                "sh -c ${(qq)xg_deploy_sh} sh ${(qq)xg_remote} ${(qq)${o_config[2]:-}}") || {
+        _x_err "Couldn't write the remote on $host."
+        return 1
+    }
+    _x_ok "Remote '$xg_remote' is in $host:$conf"
+    if ssh -o BatchMode=yes -- $host 'command -v rclone' >/dev/null 2>&1; then
+        _x_spin "Checking access from $host" \
+            ssh -o BatchMode=yes -- $host \
+                "rclone --config ${(qq)conf} lsf --max-depth 1 ${(qq):-$xg_remote:}" >/dev/null ||
+            _x_warn "$host has the remote but couldn't reach Drive with it."
+    else
+        _x_warn "rclone isn't installed on $host yet; not checked from there."
+    fi
+    (( $#f_keep )) && return 0
+    # delete, not disconnect: disconnecting would revoke the token $host now uses.
+    rclone config delete $xg_remote &&
+        _x_info "Removed '$xg_remote' from this machine (the token stays valid on $host)."
+}
+
 _x_gdrive_status() {
     _x_gdrive_ready || return
     local about scope
@@ -400,6 +465,7 @@ case $cmd in
         ;;
     login)  _x_gdrive_login "$@" ;;
     logout) _x_gdrive_logout "$@" ;;
+    deploy) _x_gdrive_deploy "$@" ;;
     status) _x_gdrive_status "$@" ;;
     ls)     _x_gdrive_ls "$@" ;;
     up)     _x_gdrive_up "$@" ;;

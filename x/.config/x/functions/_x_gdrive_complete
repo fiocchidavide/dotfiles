@@ -24,6 +24,7 @@ case $sub in
             _arguments '--scope[OAuth scope]:scope:(drive.file drive drive.readonly drive.appfolder drive.metadata.readonly)' '--use-for[what the remote is for]:text:' '1:name:_guard "^-*" "name"'
         fi
         ;;
+    deploy) _arguments '--config[rclone.conf on the other machine]:path:' '--keep[keep the remote on this machine too]' '1:SSH host:_ssh_hosts' ;;
     up)     _arguments '-d[Drive folder to upload into]:folder:' '--move[delete local copies after upload]' '--bare[progress bar only, no heading lines]' '*:local file:_files' ;;
     down)   _arguments '-C[local folder to download into]:directory:_files -/' '*:Drive path:' ;;
     ls)     _arguments '-R[recursive]' '1:Drive folder:_guard "^-*" "Drive folder"' ;;
