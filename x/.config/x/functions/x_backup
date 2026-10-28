@@ -1,6 +1,6 @@
 ## back up this Mac to Google Drive with restic: encrypted, incremental, by hand
 #@needs restic rclone op
-#@needs-optional curl
+#@needs-optional curl brew mas
 # Usage: x backup [command] …
 #
 #   x backup                        back up now, forget old snapshots, prune when
@@ -21,6 +21,10 @@
 # with `x gdrive -r <remote> login`. restic encrypts on this Mac and uploads
 # only what changed. The repository password is read from 1Password
 # (X_BACKUP_PASSWORD_REF) when needed, so nothing is stored here.
+#
+# Each backup also records what's installed (/Applications, Homebrew, App
+# Store) in $XDG_STATE_HOME/x/backup/inventory.txt, so a restore says what to
+# reinstall; keep that folder among the sources.
 #
 # After each backup, snapshots beyond 7 daily, 4 weekly and 12 monthly are
 # forgotten; their data is pruned once a month. A snapshot is a restic id or
@@ -92,6 +96,27 @@ _x_backup_push() {
         _x_warn "Couldn't check in with the reminder monitor."
 }
 
+# What's installed, written where the backup picks it up, so a restore also
+# says what to reinstall: /Applications, everything Homebrew has (not only
+# what the Brewfile lists) and App Store apps.
+_x_backup_inventory() {
+    local inv=$xb_state/inventory.txt
+    mkdir -p $xb_state || return
+    {
+        print -r -- "# Software on $(scutil --get ComputerName 2>/dev/null || hostname), $(date '+%Y-%m-%d %H:%M')"
+        print -r -- $'\n## /Applications'
+        ls -1 /Applications ~/Applications(N) 2>/dev/null
+        if (( $+commands[brew] )); then
+            print -r -- $'\n## Homebrew (brew bundle dump)'
+            brew bundle dump --file=- 2>/dev/null
+        fi
+        if (( $+commands[mas] )); then
+            print -r -- $'\n## App Store (mas list)'
+            mas list 2>/dev/null
+        fi
+    } >| $inv.tmp && mv $inv.tmp $inv
+}
+
 _x_backup_now() {
     if (( $# )); then
         _x_help backup
@@ -99,6 +124,8 @@ _x_backup_now() {
     fi
     _x_backup_settings || return
     _x_need_config X_BACKUP_SOURCES || return
+    _x_spin "Listing installed software" _x_backup_inventory ||
+        _x_warn "Couldn't write the software inventory; backing up without it."
     local -a sources=(${~X_BACKUP_SOURCES}) excludes=(--exclude-caches --exclude-if-present .nobackup)
     local e
     for e in ${X_BACKUP_EXCLUDES[@]}; do

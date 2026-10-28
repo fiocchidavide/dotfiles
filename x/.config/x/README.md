@@ -259,6 +259,11 @@ sleeps at night, and run by hand the repository password can come from
   monthly are forgotten; their data is pruned once a month (the last prune
   and check are timestamps under `$XDG_STATE_HOME/x/backup`). A month after
   the last `x backup check`, it suggests running one.
+- **Inventory**: before each run it writes what's installed (`/Applications`,
+  `brew bundle dump`, `mas list` if installed) to
+  `$XDG_STATE_HOME/x/backup/inventory.txt`, so a snapshot also says what to
+  reinstall. It's only in the backup if that folder is among the sources
+  (it is when backing up the whole home folder).
 - **Reminder**: with `X_BACKUP_PUSH_REF` (a 1Password reference to an Uptime
   Kuma push URL), each backup checks in as `up` with its duration, or `down`
   with restic's exit code. A push monitor with a 7-day heartbeat then says
