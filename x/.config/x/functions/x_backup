@@ -1,0 +1,195 @@
+## back up this Mac to Google Drive with restic: encrypted, incremental, by hand
+#@needs restic rclone op
+#@needs-optional curl
+# Usage: x backup [command] …
+#
+#   x backup                        back up now, forget old snapshots, prune when
+#                                   due, and check in with the reminder monitor
+#   x backup init                   create the repository (once)
+#   x backup snapshots              list snapshots
+#   x backup ls <snapshot> [path]   list the files in a snapshot
+#   x backup restore [-C dir] <snapshot> [path…]
+#                                   restore a snapshot, or paths in it, into dir
+#                                   (default: the current folder)
+#   x backup prune                  delete data no snapshot needs any more
+#   x backup check [--deep]         verify the repository (default: indexes and 5%
+#                                   of the data; --deep: all of it)
+#
+# Backs up X_BACKUP_SOURCES (minus X_BACKUP_EXCLUDES, folders tagged with
+# CACHEDIR.TAG and folders containing a .nobackup file) to the restic
+# repository X_BACKUP_REPO, usually rclone:<remote>:<path> on a remote set up
+# with `x gdrive -r <remote> login`. restic encrypts on this Mac and uploads
+# only what changed. The repository password is read from 1Password
+# (X_BACKUP_PASSWORD_REF) when needed, so nothing is stored here.
+#
+# After each backup, snapshots beyond 7 daily, 4 weekly and 12 monthly are
+# forgotten; their data is pruned once a month. A snapshot is a restic id or
+# "latest". If X_BACKUP_PUSH_REF is set (a 1Password reference to an Uptime
+# Kuma push URL), every backup checks in with it, so a monitor can remind you
+# when the Mac hasn't been backed up for a while.
+
+# restic exit 3 means a snapshot was made but some files couldn't be read:
+# reported, but the run still counts. State (last prune, last check) lives in
+# $XDG_STATE_HOME/x/backup as file timestamps.
+
+emulate -L zsh
+setopt extended_glob pipe_fail
+
+local xb_state=${XDG_STATE_HOME:-$HOME/.local/state}/x/backup
+local -a xb_keep=(--keep-daily 7 --keep-weekly 4 --keep-monthly 12)
+
+# Bigger Drive upload chunks and restic packs: faster uploads, fewer files.
+local -x RCLONE_DRIVE_CHUNK_SIZE=${RCLONE_DRIVE_CHUNK_SIZE:-64M}
+local -x RESTIC_PACK_SIZE=${RESTIC_PACK_SIZE:-64}
+
+# Settings every subcommand needs; asks once for the two with sensible defaults.
+_x_backup_settings() {
+    _x_ask_config X_BACKUP_REPO "restic repository for x backup" "rclone:restic-mac:restic/mac" || return
+    _x_ask_config X_BACKUP_PASSWORD_REF "1Password reference to its password" "op://restic/mac/password" || return
+    local remote
+    if [[ $X_BACKUP_REPO == rclone:* ]]; then
+        remote=${${X_BACKUP_REPO#rclone:}%%:*}
+        if ! rclone listremotes 2>/dev/null | grep -qxF "$remote:"; then
+            _x_err "rclone remote '$remote' isn't set up on this machine."
+            _x_info "Connect it with: x gdrive -r $remote login"
+            return 1
+        fi
+    fi
+}
+
+# restic with the repository and the password from 1Password. restic runs
+# the password command itself and reads its output, so the password is never
+# in argv or the environment. Pruned packs skip Drive's trash.
+_x_backup_run() {
+    restic --repo $X_BACKUP_REPO \
+        --password-command "op read $X_BACKUP_PASSWORD_REF" \
+        --option "rclone.args=serve restic --stdio --b2-hard-delete --drive-use-trash=false" \
+        "$@"
+}
+
+# _x_backup_due <name> <days>: status 0 if <name> was last done more than
+# <days> ago, or never.
+_x_backup_due() {
+    [[ -z $xb_state/$1(#qNm-$2) ]]
+}
+
+_x_backup_mark() {
+    mkdir -p $xb_state && touch $xb_state/$1
+}
+
+# _x_backup_push <up|down> <message>: check in with the reminder monitor.
+_x_backup_push() {
+    [[ -n ${X_BACKUP_PUSH_REF-} && ${X_BACKUP_PUSH_REF} != *'<'*'>'* ]] || return 0
+    local url
+    url=$(op read $X_BACKUP_PUSH_REF 2>/dev/null) || {
+        _x_warn "Couldn't read X_BACKUP_PUSH_REF from 1Password; no check-in."
+        return 0
+    }
+    # The URL holds the monitor's token: curl reads it from stdin, not argv.
+    print -r -- "url = \"$url\"" |
+        curl -fsS -G -K - -o /dev/null --max-time 20 \
+            --data-urlencode "status=$1" --data-urlencode "msg=$2" ||
+        _x_warn "Couldn't check in with the reminder monitor."
+}
+
+_x_backup_now() {
+    if (( $# )); then
+        _x_help backup
+        return
+    fi
+    _x_backup_settings || return
+    _x_need_config X_BACKUP_SOURCES || return
+    local -a sources=(${~X_BACKUP_SOURCES}) excludes=(--exclude-caches --exclude-if-present .nobackup)
+    local e
+    for e in ${X_BACKUP_EXCLUDES[@]}; do
+        excludes+=(--exclude $e)
+    done
+    local t0=$EPOCHREALTIME rc=0
+    _x_step "Backing up ${(j:, :)${sources/#$HOME/~}} to $X_BACKUP_REPO"
+    _x_backup_run backup --host ${X_BACKUP_HOST:-mac} $excludes -- $sources || rc=$?
+    case $rc in
+        0) ;;
+        3) _x_warn "Some files couldn't be read (see above); the snapshot has the rest." ;;
+        *) _x_err "Backup failed (restic exit $rc)."
+           _x_backup_push down "restic exit $rc"
+           return $rc ;;
+    esac
+    _x_spin "Forgetting snapshots beyond 7 daily, 4 weekly, 12 monthly" \
+        _x_backup_run forget --quiet --host ${X_BACKUP_HOST:-mac} $xb_keep || return
+    if _x_backup_due pruned 30; then
+        _x_spin "Pruning unused data (monthly)" _x_backup_run prune --quiet || return
+        _x_backup_mark pruned
+    fi
+    _x_ok "Backed up in $(_x_elapsed $t0)"
+    _x_backup_push up "OK in $(_x_elapsed $t0)"
+    _x_backup_due checked 30 && _x_info "Last check over a month ago; run: x backup check"
+    return 0
+}
+
+_x_backup_init() {
+    _x_backup_settings || return
+    _x_backup_run init || return
+    _x_ok "Repository created. Keep its password in 1Password: without it the backups can't be read."
+}
+
+_x_backup_snapshots() {
+    _x_backup_settings || return
+    _x_backup_run snapshots "$@"
+}
+
+_x_backup_ls() {
+    if (( $# < 1 || $# > 2 )); then
+        _x_help backup ls
+        return
+    fi
+    _x_backup_settings || return
+    _x_backup_run ls "$@"
+}
+
+_x_backup_restore() {
+    local -a o_dir
+    zparseopts -D -E -F -- C:=o_dir || return 1
+    if (( ! $# )); then
+        _x_help backup restore
+        return
+    fi
+    _x_backup_settings || return
+    local snap=$1 dir=${o_dir[2]:-.} p
+    shift
+    local -a include
+    for p in "$@"; do
+        include+=(--include $p)
+    done
+    _x_backup_run restore $snap --target $dir $include || return
+    _x_ok "Restored into ${${dir:a}/#$HOME/~}"
+}
+
+_x_backup_prune() {
+    _x_backup_settings || return
+    _x_backup_run prune || return
+    _x_backup_mark pruned
+}
+
+_x_backup_check() {
+    local -a f_deep
+    zparseopts -D -E -F -- -deep=f_deep || return 1
+    _x_backup_settings || return
+    local -a read=(--read-data-subset=5%)
+    (( $#f_deep )) && read=(--read-data)
+    _x_backup_run check $read || return
+    _x_backup_mark checked
+    _x_ok "Repository verified."
+}
+
+local cmd=${1:-}
+(( $# )) && shift
+case $cmd in
+    "")        _x_backup_now "$@" ;;
+    init)      _x_backup_init "$@" ;;
+    snapshots) _x_backup_snapshots "$@" ;;
+    ls)        _x_backup_ls "$@" ;;
+    restore)   _x_backup_restore "$@" ;;
+    prune)     _x_backup_prune "$@" ;;
+    check)     _x_backup_check "$@" ;;
+    *)         _x_help backup ;;
+esac

@@ -1,0 +1,12 @@
+# Completion hook for `x backup …`: what follows a subcommand (x completes the
+# subcommands, from the Usage block). Snapshot ids would need the repository
+# and 1Password on every Tab, so they aren't completed.
+local sub=${words[3]}
+shift 2 words
+(( CURRENT -= 2 ))
+
+case $sub in
+    restore) _arguments '-C[folder to restore into]:directory:_files -/' '1:snapshot (id or latest):(latest)' '*:path in the snapshot:' ;;
+    ls)      _arguments '1:snapshot (id or latest):(latest)' '2:path in the snapshot:' ;;
+    check)   _arguments '--deep[read and verify all data]' ;;
+esac

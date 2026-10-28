@@ -163,9 +163,10 @@ your `-q` to it) silences everything but warnings and errors.
 ## Google Drive: `x gdrive`
 
 `x gdrive` reaches Google Drive through rclone remotes defined in 1Password:
-`login`, `up`, `down`, `ls`, `link`, … Encrypted backups go through
-[`x rveil`](#x-rveil-rveil-the-x-way); rveil's README covers its design,
-archive format and recovery with stock tools.
+`login`, `up`, `down`, `ls`, `link`, … Encrypted archives go through
+[`x rveil`](#x-rveil-rveil-the-x-way) (rveil's README covers its design,
+archive format and recovery with stock tools); incremental backups of this
+Mac through [`x backup`](#x-backup-restic-to-drive-by-hand).
 
 `x vault`, the backup framework that came before rveil, is retired, and so
 are `x seal`, `x unseal` and `x kdf`, the tools it was built on. Their last
@@ -184,6 +185,7 @@ Each rclone remote is one item in the 1Password vault `X_GDRIVE_OP_VAULT`
 |---|---|---|
 | `rveil` | `drive.file` | `x rveil` (rveil's default remote): its token reaches only files that client created |
 | `drive` | `drive` | `x gdrive` by default (`X_GDRIVE_REMOTE`); `-r <remote>` picks another |
+| `restic-mac` | `drive.file` | `x backup`: restic repository of this Mac |
 | `restic-<host>` | `drive.file` | restic on a server, deployed there with `x gdrive deploy` |
 
 - `x gdrive remotes` lists the items and whether each is connected, needs
@@ -234,6 +236,39 @@ optional (`X_RVEIL_*` in `config.zsh`); rveil's defaults are the 1Password
 vault `rveil` and the remote `rveil:rveil`. For Google Drive, give it its own
 OAuth client: an item `rveil` in `X_GDRIVE_OP_VAULT` (scope `drive.file`),
 then `x gdrive -r rveil login`.
+
+## `x backup`: restic to Drive, by hand
+
+`x backup` backs this Mac up with [restic](https://restic.net): encrypted on
+the Mac, incremental (only what changed is uploaded, nothing is staged on
+disk first), with snapshots to restore from. It's run by hand: the Mac
+sleeps at night, and run by hand the repository password can come from
+1Password (Touch ID) instead of being stored.
+
+- **Where**: `X_BACKUP_REPO`, usually `rclone:restic-mac:restic/mac` on its
+  own `drive.file` remote, so its token can't see anything else on Drive
+  (and other machines' remotes can't see it). Set it up with
+  `x gdrive client new restic-mac`, then `x gdrive -r restic-mac login`, then
+  `x backup init`.
+- **What**: `X_BACKUP_SOURCES`, minus `X_BACKUP_EXCLUDES`, folders tagged with
+  `CACHEDIR.TAG`, and folders containing a `.nobackup` file.
+- **Password**: `X_BACKUP_PASSWORD_REF`. restic runs `op read` itself through
+  `--password-command`, so the password is never in argv or the environment.
+  Losing it means losing the backups: it lives in 1Password only.
+- **Retention**: after each backup, snapshots beyond 7 daily, 4 weekly and 12
+  monthly are forgotten; their data is pruned once a month (the last prune
+  and check are timestamps under `$XDG_STATE_HOME/x/backup`). A month after
+  the last `x backup check`, it suggests running one.
+- **Reminder**: with `X_BACKUP_PUSH_REF` (a 1Password reference to an Uptime
+  Kuma push URL), each backup checks in as `up` with its duration, or `down`
+  with restic's exit code. A push monitor with a 7-day heartbeat then says
+  when the Mac hasn't been backed up for a week. The URL holds the monitor's
+  token, so curl reads it from stdin.
+
+Restore from a machine that isn't this Mac: log in to the same remote
+(`x gdrive -r restic-mac login`), then
+`restic -r rclone:restic-mac:restic/mac restore latest --target <dir>` with
+the password from 1Password.
 
 ## `x colab`: a Colab runtime for the repo you're in
 

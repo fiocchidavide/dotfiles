@@ -49,3 +49,15 @@ X_RVEIL_STAGING=""      # where put seals archives before push
 # 1Password vault for the repo tokens x colab token keeps, one item per
 # <owner>/<repo>. Asked for on first use.
 X_COLAB_OP_VAULT="x-colab"
+
+# --- x backup ---------------------------------------------------------------
+# restic repository, usually on an x gdrive remote with its own drive.file
+# client (x gdrive client new restic-mac; x gdrive -r restic-mac login).
+X_BACKUP_REPO="rclone:restic-mac:restic/mac"
+X_BACKUP_PASSWORD_REF="op://restic/mac/password"
+# What to back up, and patterns to leave out (restic --exclude syntax).
+X_BACKUP_SOURCES=(~/Documents ~/Desktop)
+X_BACKUP_EXCLUDES=(node_modules .venv '.DS_Store')
+X_BACKUP_HOST="mac"     # snapshots are grouped by this name
+# Optional: an Uptime Kuma push URL, checked in with after every backup.
+X_BACKUP_PUSH_REF="op://<vault>/<item>/url"

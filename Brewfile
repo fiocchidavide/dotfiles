@@ -11,7 +11,8 @@ brew "atool"          # x dw       (aunpack)
 brew "mupdf-tools"    # x extrct   (mutool)
 brew "m1ddc"          # x shine
 brew "openconnect"    # x connect
-brew "rclone"         # x serve webdav, x gdrive, x rveil
+brew "rclone"         # x serve webdav, x gdrive, x rveil, x backup
+brew "restic"         # x backup
 brew "uv"             # x ocr, x datalab, x gdrive, x rveil, mas
 brew "jq"             # x gdrive, x serve, x rveil, x colab  (macOS 15+ also ships one)
 
@@ -25,7 +26,7 @@ brew "fzf"            # also x watch -i (optional)
 brew "pure"           # prompt
 
 # --- casks ---
-cask "1password-cli"  # x connect, x datalab, x gdrive, x serve, x rveil, x colab  (op)
+cask "1password-cli"  # x connect, x datalab, x gdrive, x serve, x rveil, x colab, x backup  (op)
 cask "iina"           # x watch iina
 
 # --- not available via Homebrew (install manually) ---
