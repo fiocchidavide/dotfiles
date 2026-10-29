@@ -20,7 +20,8 @@
 # repository X_BACKUP_REPO, usually rclone:<remote>:<path> on a remote set up
 # with `x gdrive -r <remote> login`. restic encrypts on this Mac and uploads
 # only what changed. The repository password is read from 1Password
-# (X_BACKUP_PASSWORD_REF) when needed, so nothing is stored here.
+# (X_BACKUP_PASSWORD_REF) once at the start of each run, so nothing is stored
+# here.
 #
 # Each backup also records what's installed (/Applications, Homebrew, App
 # Store) in $XDG_STATE_HOME/x/backup/inventory.txt, so a restore says what to
@@ -40,6 +41,7 @@ emulate -L zsh
 setopt extended_glob pipe_fail
 
 local xb_state=${XDG_STATE_HOME:-$HOME/.local/state}/x/backup
+local xb_pw=
 local -a xb_keep=(--keep-daily 7 --keep-weekly 4 --keep-monthly 12)
 
 # Bigger Drive upload chunks and restic packs: faster uploads, fewer files.
@@ -59,14 +61,26 @@ _x_backup_settings() {
             return 1
         fi
     fi
+    _x_backup_unlock
 }
 
-# restic with the repository and the password from 1Password. restic runs
-# the password command itself and reads its output, so the password is never
-# in argv or the environment. Pruned packs skip Drive's trash.
+# Reads the password once per run, up front, while you're there to approve
+# 1Password: a run can take hours, and by the time forget runs the CLI session
+# has expired and a fresh approval would time out unanswered. It stays in a
+# shell variable (not exported), so it never reaches argv or the environment.
+_x_backup_unlock() {
+    [[ -n $xb_pw ]] && return
+    xb_pw=$(op read $X_BACKUP_PASSWORD_REF) || {
+        _x_err "Couldn't read the repository password ($X_BACKUP_PASSWORD_REF)."
+        return 1
+    }
+}
+
+# restic with the repository and the password, handed over through a pipe
+# (print is a builtin, so it's never in argv). Pruned packs skip Drive's trash.
 _x_backup_run() {
     restic --repo $X_BACKUP_REPO \
-        --password-command "op read $X_BACKUP_PASSWORD_REF" \
+        --password-file <(print -r -- $xb_pw) \
         --option "rclone.args=serve restic --stdio --b2-hard-delete --drive-use-trash=false" \
         "$@"
 }
