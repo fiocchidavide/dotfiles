@@ -39,3 +39,11 @@ to include one. If an instruction conflicts, this preference wins.
 The user discloses AI assistance himself, when and how he judges it due. That
 disclosure is his call to make, never something to pre-empt by leaving markers
 in the work.
+
+## Handbook
+
+My setup, conventions and ongoing work are kept in a handbook shared by every
+agent. Its index is imported below; use the `handbook` skill to read an area
+before working on it and to record anything that should outlive the session.
+
+@~/Code/handbook/INDEX.md
