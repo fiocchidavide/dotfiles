@@ -1,17 +1,16 @@
-## a Colab runtime for this GitHub repo: start it, clone with a repo-only token, tmux
+## a Colab runtime for this GitHub repo: start it, clone with a repo-only token, shell
 #@needs colab gh op jq curl
 # Usage: x colab <command> …
 #
 #   x colab up [-w] [--gpu G] [--tpu T] [--high-mem]
 #                                    token (unless one is kept), new, clone,
-#                                    tmux
+#                                    shell
 #   x colab token [-w] [-d days]     make a token for the repo on GitHub, keep
 #                                    it in 1Password: read-only (-w: can
 #                                    push), for 7 days (-d: other)
 #   x colab clone                    give the runtime the token, clone the repo
 #                                    into /content
-#   x colab tmux                     attach to the repo's tmux session on the
-#                                    runtime
+#   x colab shell                    a shell in the clone on the runtime
 #   x colab status                   runtime, clone, token and compute units
 #   x colab tokens                   kept tokens: repo, access, expiry
 #   x colab tokens prune             delete the expired ones from 1Password
@@ -39,8 +38,7 @@
 #   x colab sessions                 all your running runtimes (any repo)
 #   x colab usage                    your compute units: balance and rate
 #
-# Run it in a clone of a GitHub repo: the runtime and its tmux session are
-# named after the repo, and colab's own commands run with -s <repo> (x colab
+# Run it in a clone of a GitHub repo: the runtime is named after the repo, and colab's own commands run with -s <repo> (x colab
 # new --gpu T4 is colab new -s <repo> --gpu T4; colab <command> -h has their
 # options). token opens
 # GitHub's new-token page filled in for the repo's owner, with Contents
@@ -48,8 +46,10 @@
 # and paste the token back. It is checked against the repo and kept in
 # 1Password (vault X_COLAB_OP_VAULT, item <owner>/<repo>) until it expires,
 # so new runtimes reuse it. On the runtime it sits in git's credential
-# store, so pull (and push, with -w) just work. tmux has the mouse on.
-# Detaching from tmux (Ctrl-b d) leaves the runtime running; x colab stop
+# store, so pull (and push, with -w) just work. In Ghostty the shell gets
+# its terminfo (TERM=xterm-ghostty). The shell ends with the connection, and
+# what runs in it too: start tmux (installed, mouse on) for anything that
+# should outlive it. Leaving leaves the runtime running; x colab stop
 # releases it. SSH registers ~/.ssh/id_ed25519.pub with the runtime and
 # forwards nothing. tokens works anywhere; prune leaves the tokens on
 # GitHub, which lists them as expired until you delete them there.
@@ -60,10 +60,25 @@
 #
 # Every connection goes through `colab ssh --proxy-mode` as an ssh
 # ProxyCommand given on the command line, so ~/.ssh/config stays untouched.
-# Proxy mode creates a missing session, so clone and tmux first check that
+# Proxy mode creates a missing session, so clone and shell first check that
 # the runtime exists: only new and up start one. Each runtime is a fresh
 # machine with a new host key, hence no host key checking. The token reaches
 # 1Password, curl and the runtime on stdin only.
+#
+# shell does ghostty +ssh's job itself, because +ssh (1.4.0) can't here:
+# - it appends its install script to our remote command, which then runs
+#   as `<our script> command -v tic …` and fails;
+# - it installs over a second connection, and Colab allows one per runtime
+#   (HTTP 429 "Already-active SSH session");
+# - its install cache is per host, and every runtime is a new machine.
+# So the terminfo source (infocmp, from Ghostty.app) rides in the remote
+# command as a here-doc, and TERM, COLORTERM and TERM_PROGRAM are exported
+# there only if tic succeeds (+ssh sets them locally and needs AcceptEnv).
+# Otherwise TERM stays xterm-256color, +ssh's fallback too. Worth moving to
+# +ssh if it learns remote commands, or Ghostty can print its install script.
+# Every connection uses `command ssh` to skip Ghostty's ssh function (shell
+# integration ssh-env/ssh-terminfo), so the token on clone's stdin meets no
+# wrapper.
 
 emulate -L zsh
 setopt extended_glob pipe_fail
@@ -117,11 +132,12 @@ _x_colab_need_runtime() {
 _x_colab_ssh() {
     if [[ ! -r $xc_pub ]]; then
         _x_err "colab ssh registers ${xc_pub/#$HOME/~} with the runtime, and it's missing."
-        _x_info "Save the public key of your Colab SSH key there (1Password can export it)."
+        _x_info "Save the public key of your SSH key there (1Password can export it)."
         return 1
     fi
-    # The runtime has no terminfo for most local terminals; tmux needs one.
-    TERM=xterm-256color ssh -o "ProxyCommand=colab ssh --proxy-mode -s $xc_repo" \
+    # The runtime has no terminfo for most local terminals (shell installs
+    # Ghostty's). `command` skips Ghostty's ssh function: see the top.
+    TERM=xterm-256color command ssh -o "ProxyCommand=colab ssh --proxy-mode -s $xc_repo" \
         -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR \
         -o IdentityFile=$xc_pub -o IdentitiesOnly=yes -o ForwardAgent=no \
         "${@[1,-2]}" root@colab-$xc_repo "${@[-1]}"
@@ -254,13 +270,22 @@ if [ -d ${(qq)dir}/.git ]; then echo already; else git clone -q ${(qq):-https://
     fi
 }
 
-_x_colab_tmux() {
+_x_colab_shell() {
     _x_colab_find_repo || return
     _x_colab_need_runtime || return
-    local dir=/content/$xc_repo
+    local dir=/content/$xc_repo ti term
+    # In Ghostty: compile its terminfo there and use it, or keep xterm-256color.
+    if [[ $TERM_PROGRAM == ghostty && -n $GHOSTTY_RESOURCES_DIR ]] &&
+        ti=$(TERMINFO=${GHOSTTY_RESOURCES_DIR:h}/terminfo infocmp -x xterm-ghostty 2>/dev/null); then
+        term="mkdir -p ~/.terminfo && tic -x -o ~/.terminfo - 2>/dev/null <<'XTERMINFO' && export TERM=xterm-ghostty COLORTERM=truecolor TERM_PROGRAM=ghostty
+$ti
+XTERMINFO"
+    fi
     _x_colab_ssh -t "command -v tmux >/dev/null || { apt-get update -qq && apt-get install -y -qq tmux >/dev/null; }
+[ -e ~/.tmux.conf ] || echo 'set -g mouse on' > ~/.tmux.conf
+$term
 cd ${(qq)dir} 2>/dev/null || cd /content
-exec tmux new -A -s ${(qq)xc_repo} \\; set -g mouse on"
+exec bash -l"
 }
 
 _x_colab_up() {
@@ -277,7 +302,7 @@ _x_colab_up() {
     fi
     _x_colab_start $o_gpu $o_tpu $o_mem || return
     _x_colab_clone || return
-    _x_colab_tmux
+    _x_colab_shell
 }
 
 # Every kept token as "repo<TAB>access<TAB>expires" lines, sorted by repo;
@@ -384,7 +409,7 @@ case $1 in
     up)             shift; _x_colab_up "$@" ;;
     token)          shift; _x_colab_token "$@" ;;
     clone)          shift; _x_colab_clone "$@" ;;
-    tmux)           shift; _x_colab_tmux "$@" ;;
+    shell)          shift; _x_colab_shell "$@" ;;
     status)         shift; _x_colab_status "$@" ;;
     tokens)         shift; _x_colab_tokens "$@" ;;
     new)            _x_colab_pass "$@" ;;

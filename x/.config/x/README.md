@@ -278,9 +278,9 @@ the password from 1Password.
 ## `x colab`: a Colab runtime for the repo you're in
 
 `x colab up`, run in a clone of a GitHub repo, starts a Colab runtime named
-after the repo, clones the repo there and attaches to a tmux session in it.
-Each step is also its own subcommand (`token`, `new`, `clone`, `tmux`,
-`stop`), on top of Google's [`colab` CLI](https://pypi.org/project/google-colab-cli/).
+after the repo, clones the repo there and opens a shell in it (tmux is
+installed, for anything that should outlive the connection). Each step is
+also its own subcommand (`token`, `new`, `clone`, `shell`, `stop`), on top of Google's [`colab` CLI](https://pypi.org/project/google-colab-cli/).
 
 The runtime gets as little as it can work with:
 
