@@ -1,0 +1,5 @@
+# Completion hook for `x repos …`: its one option.
+# _arguments takes words[1] for the command: drop the `x`.
+shift words
+(( CURRENT-- ))
+_arguments '-f[fetch every repo first, so behind counts are current]'

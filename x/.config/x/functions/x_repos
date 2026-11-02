@@ -1,0 +1,158 @@
+## the git repos under ~/Code that need attention: uncommitted, unpushed, behind
+#@needs git
+# Usage: x repos [-f]
+#
+#   x repos      list the repos under ~/Code with something to deal with
+#   x repos -f   fetch them all first, so behind counts are current
+#
+# A repo is listed when it has uncommitted changes, untracked files, commits
+# on no remote (any branch), a branch behind its upstream, stashes, a merge
+# or rebase in progress, a detached HEAD, or no remote at all; the last line
+# counts the clean ones. Behind counts are as of the last fetch: -f fetches
+# every repo with a remote (8 at a time) and says which ones failed.
+#
+# Folders follow ~/Code's naming: lowercase is a repo, Capitalised is a
+# folder. A lowercase directory that isn't a repo is listed as such.
+
+# The walk: ~/Code and its categories are folders of repos. Below them, a
+# directory with .git is a repo (whatever its case: AKANE, Vendor/rea), and
+# isn't descended, so submodules and ignored nested repos belong to it. A
+# Capitalised directory is a folder: descended if it holds a repo directly
+# (Research/Bias-to-Action), else left alone (Hacks/Laundry: work kept
+# outside git). Only inside folders of repos is a lowercase non-repo odd.
+
+emulate -L zsh
+setopt extended_glob pipe_fail
+# Rows are composed in $(…), where stdout is a pipe: decide colour here.
+local X_FANCY_OUT; _x_fancy 1 && X_FANCY_OUT=1
+
+local -A opts
+zparseopts -D -E -A opts f || { _x_help repos; return }
+(( $# )) && { _x_help repos; return }
+
+local root=~/Code
+[[ -d $root ]] || { _x_err "${root/#$HOME/~} doesn't exist."; return 1 }
+
+local -a repos odd
+local r
+_x_repos_walk() {
+    local d
+    for d in $1/*(N/); do
+        if [[ -e $d/.git ]]; then
+            repos+=($d)
+        elif [[ ${d:t} == [[:upper:]]* ]]; then
+            (( $2 )) || [[ -n $(print -l $d/*/.git(N[1])) ]] && _x_repos_walk $d 0
+        else
+            odd+=($d)
+        fi
+    done
+}
+_x_repos_walk $root 1
+
+# _x_repos_fetch <repo>…: fetch them, 8 at a time; print the ones that failed.
+_x_repos_fetch() {
+    print -rN -- "$@" | GIT_TERMINAL_PROMPT=0 xargs -0 -P 8 -n 1 sh -c \
+        'git -C "$1" fetch --all --prune --quiet </dev/null >/dev/null 2>&1 || printf "%s\n" "$1"' sh
+}
+
+if (( ${+opts[-f]} )); then
+    local -a remote failed
+    for r in $repos; do
+        [[ -n $(git -C $r remote 2>/dev/null) ]] && remote+=($r)
+    done
+    # No prompts: a repo that wants a password fails instead of hanging.
+    failed=(${(f)"$(_x_spin -t "Fetching ${#remote} repos" _x_repos_fetch $remote)"})
+    (( ${#failed} )) && _x_warn "Couldn't fetch: ${(j:, :)${failed#$root/}}"
+fi
+
+# _x_repos_check <repo>: "role<TAB>branch<TAB>what's up", nothing when clean.
+_x_repos_check() {
+    local -a lines notes
+    lines=(${(f)"$(git -C $1 status --porcelain=v2 --branch 2>/dev/null)"}) ||
+        { print -r -- $'err\t?\tgit status failed'; return }
+    local head oid ab line role=half gd
+    local -i changed untracked behind unpushed stashes
+    for line in $lines; do
+        case $line in
+            '# branch.oid '*)  oid=${line#\# branch.oid } ;;
+            '# branch.head '*) head=${line#\# branch.head } ;;
+            '# branch.ab '*)   ab=${line#\# branch.ab }
+                               behind=${${ab##* }#-} ;;
+            '# '*)             ;;
+            '? '*)             (( untracked++ )) ;;
+            *)                 (( changed++ )) ;;
+        esac
+    done
+    gd=$(git -C $1 rev-parse --absolute-git-dir)
+    if [[ -d $gd/rebase-merge || -d $gd/rebase-apply ]]; then
+        role=err; notes+=("rebase in progress")
+    elif [[ -e $gd/MERGE_HEAD ]]; then
+        role=err; notes+=("merge in progress")
+    elif [[ -e $gd/CHERRY_PICK_HEAD ]]; then
+        role=err; notes+=("cherry-pick in progress")
+    fi
+    if [[ $head == '(detached)' ]]; then
+        head=${oid[1,7]}; notes+=("detached HEAD")
+    fi
+    (( changed )) && notes+=("$changed changed")
+    (( untracked )) && notes+=("$untracked untracked")
+    if [[ $oid == '(initial)' ]]; then
+        notes+=("no commits")
+    elif [[ -z $(git -C $1 remote) ]]; then
+        notes+=("no remote")
+    else
+        unpushed=$(git -C $1 rev-list --count --branches --not --remotes)
+        if (( unpushed )); then
+            # Name the other branches holding them: the current one is shown.
+            local -a others=() b
+            for b in ${(f)"$(git -C $1 for-each-ref --format='%(refname:short)' refs/heads)"}; do
+                [[ $b != $head ]] && (( $(git -C $1 rev-list --count refs/heads/$b --not --remotes) )) &&
+                    others+=($b)
+            done
+            notes+=("$unpushed unpushed${others:+ (on ${(j:, :)others})}")
+        fi
+    fi
+    (( behind )) && notes+=("$behind behind")
+    stashes=$(git -C $1 rev-list --walk-reflogs --count refs/stash 2>/dev/null)
+    (( stashes )) && notes+=("$stashes stashed")
+    (( ${#notes} )) && print -r -- "$role"$'\t'"$head"$'\t'"${(j:, :)notes}"
+}
+
+# One heading per category (repos right in ~/Code first), names relative to it.
+local -A report
+local -a groups
+local rel group out name
+local -i clean
+for r in $repos; do
+    out=$(_x_repos_check $r)
+    [[ -z $out ]] && { (( clean++ )); continue }
+    rel=${r#$root/}
+    [[ $rel == */* ]] && group=${rel%%/*} name=${rel#*/} || group='~/Code' name=$rel
+    groups+=($group)
+    report[$group]+=${report[$group]:+$'\n'}"$name"$'\t'"$out"
+done
+for r in $odd; do
+    rel=${r#$root/}
+    [[ $rel == */* ]] && group=${rel%%/*} name=${rel#*/} || group='~/Code' name=$rel
+    groups+=($group)
+    report[$group]+=${report[$group]:+$'\n'}"$name"$'\twarn\t-\tnot a git repo (lowercase names are repos)'
+done
+
+# Columns as wide as the longest name and branch.
+local -a fields rows=(${(f)${(F)report}})
+local line
+local -i wn=0 wb=0
+for line in $rows; do
+    fields=("${(@ps:\t:)line}")
+    (( wn = ${#fields[1]} > wn ? ${#fields[1]} : wn, wb = ${#fields[3]} > wb ? ${#fields[3]} : wb ))
+done
+groups=(${(u)${(M)groups:#\~/Code}} ${(u)groups:#\~/Code})
+for group in $groups; do
+    _x_heading $group
+    for line in ${(f)report[$group]}; do
+        fields=("${(@ps:\t:)line}")
+        _x_item ${fields[2]} "${(r:wn:)fields[1]}  ${(r:wb:)fields[3]}  $(_x_paint -o dim ${fields[4]})"
+    done
+    print
+done
+_x_item ok "$clean of ${#repos} repos clean"
