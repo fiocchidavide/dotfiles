@@ -1,14 +1,15 @@
 ## the git repos under ~/Code that need attention: uncommitted, unpushed, behind
 #@needs git
-# Usage: x repos [-f]
+# Usage: x repos [-a] [-f]
 #
 #   x repos      list the repos under ~/Code with something to deal with
+#   x repos -a   list the clean ones too
 #   x repos -f   fetch them all first, so behind counts are current
 #
 # A repo is listed when it has uncommitted changes, untracked files, commits
 # on no remote (any branch), a branch behind its upstream, stashes, a merge
 # or rebase in progress, a detached HEAD, or no remote at all; the last line
-# counts the clean ones. Behind counts are as of the last fetch: -f fetches
+# counts the clean ones (-a lists them too). Behind counts are as of the last fetch: -f fetches
 # every repo with a remote (8 at a time) and says which ones failed.
 #
 # Folders follow ~/Code's naming: lowercase is a repo, Capitalised is a
@@ -27,7 +28,7 @@ setopt extended_glob pipe_fail
 local X_FANCY_OUT; _x_fancy 1 && X_FANCY_OUT=1
 
 local -A opts
-zparseopts -D -E -A opts f || { _x_help repos; return }
+zparseopts -D -E -A opts a f || { _x_help repos; return }
 (( $# )) && { _x_help repos; return }
 
 local root=~/Code
@@ -65,7 +66,7 @@ if (( ${+opts[-f]} )); then
     (( ${#failed} )) && _x_warn "Couldn't fetch: ${(j:, :)${failed#$root/}}"
 fi
 
-# _x_repos_check <repo>: "role<TAB>branch<TAB>what's up", nothing when clean.
+# _x_repos_check <repo>: "role<TAB>branch<TAB>what's up" (role ok: clean).
 _x_repos_check() {
     local -a lines notes
     lines=(${(f)"$(git -C $1 status --porcelain=v2 --branch 2>/dev/null)"}) ||
@@ -115,7 +116,8 @@ _x_repos_check() {
     (( behind )) && notes+=("$behind behind")
     stashes=$(git -C $1 rev-list --walk-reflogs --count refs/stash 2>/dev/null)
     (( stashes )) && notes+=("$stashes stashed")
-    (( ${#notes} )) && print -r -- "$role"$'\t'"$head"$'\t'"${(j:, :)notes}"
+    (( ${#notes} )) || { role=ok; notes=(clean) }
+    print -r -- "$role"$'\t'"$head"$'\t'"${(j:, :)notes}"
 }
 
 # One heading per category (repos right in ~/Code first), names relative to it.
@@ -125,7 +127,10 @@ local rel group out name
 local -i clean
 for r in $repos; do
     out=$(_x_repos_check $r)
-    [[ -z $out ]] && { (( clean++ )); continue }
+    if [[ $out == ok$'\t'* ]]; then
+        (( clean++ ))
+        (( ${+opts[-a]} )) || continue
+    fi
     rel=${r#$root/}
     [[ $rel == */* ]] && group=${rel%%/*} name=${rel#*/} || group='~/Code' name=$rel
     groups+=($group)
