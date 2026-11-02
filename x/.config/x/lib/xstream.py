@@ -30,13 +30,18 @@ def clock(seconds) -> str:
 
 def draw_bar(out, label, done, total, speed, eta) -> None:
     """One frame: label, sizes, a line filled in cyan over a dim track (with a
-    half cell, ╸, for precision), percentage, speed and ETA."""
-    import shutil
+    half cell, ╸, for precision), percentage, speed and ETA, spanning the
+    terminal out is on (stdout may be a pipe, so it can't be asked)."""
+    import os
+    try:
+        cols = os.get_terminal_size(out.fileno()).columns
+    except (OSError, ValueError):
+        cols = 80
     frac = min(done / total, 1.0) if total else 0.0
     left = f"{label}  {human(done)} / {human(total) if total else '?'}  "
     rate = f"{human(speed or 0)}/s"
     right = f"  {frac * 100:3.0f}%  {rate:>11}  ETA {clock(eta):>7}"
-    width = max(10, shutil.get_terminal_size((80, 24)).columns - len(left) - len(right) - 1)
+    width = max(10, cols - len(left) - len(right) - 1)
     halves = int(frac * width * 2)
     filled = "━" * (halves // 2) + ("╸" if halves % 2 else "")
     track = "━" * (width - len(filled))
