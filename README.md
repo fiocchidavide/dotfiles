@@ -21,7 +21,7 @@ runtime, so both work from any clone location.
 | `ssh`     | SSH client config and public key | `~/.ssh/config`, `~/.ssh/id_ed25519.pub` |
 | `ghostty` | Ghostty terminal config | `~/Library/Application Support/com.mitchellh.ghostty/config.ghostty` |
 | `vscode`  | VS Code keybindings | `~/Library/Application Support/Code/User/keybindings.json` |
-| `claude`  | Global Claude Code instructions | `~/.claude/CLAUDE.md` |
+| `claude`  | Global Claude Code instructions and settings | `~/.claude/CLAUDE.md`, `~/.claude/settings.json` |
 
 > **Note on tree-folding:** if a directory doesn't exist in `$HOME` yet,
 > Stow by default "folds" it into one symlink into this repo (e.g.

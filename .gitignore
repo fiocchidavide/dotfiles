@@ -33,9 +33,10 @@ ghostty/Library/Application Support/com.mitchellh.ghostty/*
 !ghostty/Library/Application Support/com.mitchellh.ghostty/config.ghostty
 
 # And for claude: ~/.claude holds session history, transcripts, caches and
-# credentials — only the global CLAUDE.md is versioned.
+# credentials — only the global CLAUDE.md and settings.json are versioned.
 claude/.claude/*
 !claude/.claude/CLAUDE.md
+!claude/.claude/settings.json
 
 # Python bytecode (x/.config/x/lib)
 __pycache__/

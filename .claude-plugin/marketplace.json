@@ -1,0 +1,8 @@
+{
+  "name": "dotfiles",
+  "description": "Claude Code plugins kept in the dotfiles, read in place from this checkout.",
+  "owner": { "name": "Davide Fiocchi" },
+  "plugins": [
+    { "name": "infra", "source": "./plugins/infra" }
+  ]
+}

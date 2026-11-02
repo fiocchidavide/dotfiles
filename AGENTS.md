@@ -13,6 +13,8 @@ know before changing anything.
 | `x/.config/x/` | The `x` dispatcher (`x.zsh`), its commands (`functions/x_<name>`), completion hooks (`functions/_x_<name>_complete`), `lib/xstream.py` |
 | `zsh/` | `.zshenv`, `.zprofile`, `.zshrc`, `.myfunctions` (sources `x.zsh`) |
 | `claude/.claude/CLAUDE.md` | The user's **global** Claude Code instructions, stowed to `~/.claude/CLAUDE.md`. Not about this repo; edit only when asked |
+| `claude/.claude/settings.json` | Claude Code user settings, stowed to `~/.claude/settings.json`. Claude Code writes through the symlink (`/config`, `claude plugin …`), so its changes show up here as diffs. It lists every plugin marketplace (local repos, read in place) and which plugins are on |
+| `.claude-plugin/marketplace.json`, `plugins/` | Claude Code plugins kept here (`infra`: Cloudflare MCP, Tailscale skill). `plugins/` is not a stow package (excluded in the `Makefile`). Nothing private in them: tailnet details stay in the handbook |
 | `Brewfile` | Homebrew deps; the "install manually" comments list what brew can't provide |
 | `Makefile` | `make link / relink / unlink / brew / install / doctor`; packages are auto-detected |
 | `.github/workflows/lint.yml`, `.github/scripts/` | CI and its test scripts |

@@ -1,0 +1,5 @@
+{
+  "name": "infra",
+  "description": "Cloudflare (official Code Mode API server) and Tailscale (CLI and API, as a skill) for managing the homelab's network.",
+  "author": { "name": "Davide Fiocchi" }
+}

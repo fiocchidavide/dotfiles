@@ -1,0 +1,66 @@
+{
+  "model": "opus",
+  "permissions": {
+    "allow": [
+      "mcp__plugin_infra_cloudflare__search"
+    ],
+    "ask": [
+      "mcp__plugin_infra_cloudflare__execute"
+    ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "^(startup|resume|clear|compact|fork)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash '/Users/davide/.claude/hooks/herdr-agent-state.sh' session",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  },
+  "enabledPlugins": {
+    "swift-lsp@claude-plugins-official": true,
+    "gopls-lsp@claude-plugins-official": true,
+    "zotero-librarian@zotero-librarian": true,
+    "handbook@handbook": true,
+    "snotes@snotes": true,
+    "infra@dotfiles": true
+  },
+  "extraKnownMarketplaces": {
+    "zotero-librarian": {
+      "source": {
+        "source": "directory",
+        "path": "/Users/davide/Code/Projects/zotero-librarian"
+      }
+    },
+    "handbook": {
+      "source": {
+        "source": "directory",
+        "path": "/Users/davide/Code/handbook"
+      }
+    },
+    "snotes": {
+      "source": {
+        "source": "directory",
+        "path": "/Users/davide/Code/Projects/snotes"
+      }
+    },
+    "dotfiles": {
+      "source": {
+        "source": "directory",
+        "path": "/Users/davide/Code/dotfiles"
+      }
+    }
+  },
+  "voice": {
+    "enabled": true,
+    "mode": "hold"
+  },
+  "theme": "auto",
+  "switchModelsOnFlag": true,
+  "voiceEnabled": true
+}
