@@ -265,17 +265,20 @@ _x_gdrive_deploy() {
     section=$(_x_gdrive_rclone_conf $xg_remote |
         jq -r --arg r $xg_remote '"[\($r)]", (to_entries[] | "\(.key) = \(.value)")') || return
     # The section (client and token) goes on stdin; argv has only names and paths.
+    # `command ssh`: the binary, never a shell function wrapping it. Ghostty's shell
+    # integration defines `ssh` as `ghostty +ssh`, which installs its terminfo through the
+    # session's stdin and so wrote it into rclone.conf ahead of the section.
     conf=$(print -r -- $section |
         _x_spin -t "Copying remote '$xg_remote' to $host" \
-            ssh -o BatchMode=yes -- $host \
+            command ssh -o BatchMode=yes -- $host \
                 "sh -c ${(qq)xg_deploy_sh} sh ${(qq)xg_remote} ${(qq)${o_config[2]:-}}") || {
         _x_err "Couldn't write the remote on $host."
         return 1
     }
     _x_ok "Remote '$xg_remote' is in $host:$conf"
-    if ssh -o BatchMode=yes -- $host 'command -v rclone' >/dev/null 2>&1; then
+    if command ssh -o BatchMode=yes -- $host 'command -v rclone' >/dev/null 2>&1; then
         _x_spin "Checking access from $host" \
-            ssh -o BatchMode=yes -- $host \
+            command ssh -o BatchMode=yes -- $host \
                 "rclone --config ${(qq)conf} lsf --max-depth 1 ${(qq):-$xg_remote:}" >/dev/null ||
             _x_warn "$host has the remote but couldn't reach Drive with it."
     else
