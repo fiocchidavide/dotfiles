@@ -1,5 +1,4 @@
 {
-  "model": "opus",
   "permissions": {
     "allow": [
       "mcp__plugin_infra_cloudflare__search"
@@ -8,6 +7,7 @@
       "mcp__plugin_infra_cloudflare__execute"
     ]
   },
+  "model": "opus",
   "hooks": {
     "SessionStart": [
       {
