@@ -28,19 +28,38 @@ def clock(seconds) -> str:
     return f"{s // 3600}:{s // 60 % 60:02}:{s % 60:02}" if s >= 3600 else f"{s // 60}:{s % 60:02}"
 
 
+def term_cols(out) -> int:
+    """Width of the terminal out is on (stdout may be a pipe, so it can't be
+    asked), or 80."""
+    import os
+    try:
+        return os.get_terminal_size(out.fileno()).columns
+    except (OSError, ValueError):
+        return 80
+
+
+def fit(text: str, width: int) -> str:
+    """text cut to width with an ellipsis in the middle, so a live line never
+    wraps (a wrapped line can't be redrawn in place) and keeps both its start
+    and the end of a long path."""
+    if len(text) <= width:
+        return text
+    if width < 2:
+        return text[:max(width, 0)]
+    head = (width - 1) // 2
+    return text[:head] + "…" + text[len(text) - (width - 1 - head):]
+
+
 def draw_bar(out, label, done, total, speed, eta) -> None:
     """One frame: label, sizes, a line filled in cyan over a dim track (with a
     half cell, ╸, for precision), percentage, speed and ETA, spanning the
-    terminal out is on (stdout may be a pipe, so it can't be asked)."""
-    import os
-    try:
-        cols = os.get_terminal_size(out.fileno()).columns
-    except (OSError, ValueError):
-        cols = 80
+    terminal; the label is shortened to leave the line at least 10 cells."""
+    cols = term_cols(out)
     frac = min(done / total, 1.0) if total else 0.0
-    left = f"{label}  {human(done)} / {human(total) if total else '?'}  "
+    sizes = f"  {human(done)} / {human(total) if total else '?'}  "
     rate = f"{human(speed or 0)}/s"
     right = f"  {frac * 100:3.0f}%  {rate:>11}  ETA {clock(eta):>7}"
+    left = fit(label, cols - len(sizes) - len(right) - 11) + sizes
     width = max(10, cols - len(left) - len(right) - 1)
     halves = int(frac * width * 2)
     filled = "━" * (halves // 2) + ("╸" if halves % 2 else "")
@@ -140,8 +159,10 @@ def cmd_rveillog(args) -> int:
                      bar.get("bytes_per_second"), bar.get("eta_seconds"))
         else:
             spin = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"[frame % 10]
+            took = elapsed(time.monotonic() - start)
+            msg = fit(msg, term_cols(out) - len(took) - 4)
             out.write(f"\r\033[K{paint(style('spin'), spin)} {msg} "
-                      f"{paint(style('dim'), elapsed(time.monotonic() - start))}")
+                      f"{paint(style('dim'), took)}")
         frame += 1
         shown = True
         out.flush()
