@@ -754,4 +754,5 @@ _x() {
         *) ;;
     esac
 }
-compdef _x x
+# Not defined in `zsh -c` scripts (OpenLogi runs `x shine up` that way).
+if (( ${+functions[compdef]} )); then compdef _x x; fi
