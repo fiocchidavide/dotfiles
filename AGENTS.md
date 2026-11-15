@@ -27,8 +27,8 @@ know before changing anything.
   `~/.config/x` is a single symlink.
 - `.gitignore` is a second safety net: under shared directories
   (`claude/.claude`, `ssh/.ssh`, `vscode/…/User`, `ghostty/…`,
-  `x/.config`) only the versioned files are un-ignored. A new file there
-  needs a `!` exception.
+  `openlogi/…`, `linearmouse/…`, `x/.config`) only the versioned files are
+  un-ignored. A new file there needs a `!` exception.
 - `x/.config/x/config.zsh` is per machine and git-ignored; keys are
   documented in `config.zsh.example`. Never commit secrets: values are
   1Password references (`op://…`) read with `op read` when needed.

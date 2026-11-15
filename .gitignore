@@ -46,3 +46,11 @@ __pycache__/
 ssh/.ssh/*
 !ssh/.ssh/config
 !ssh/.ssh/id_ed25519.pub
+
+# And for openlogi and linearmouse: they write through the config symlink, so
+# their lock, backup and temp files land next to it, in the repo. Only the
+# config itself is versioned.
+openlogi/.config/openlogi/*
+!openlogi/.config/openlogi/config.toml
+linearmouse/.config/linearmouse/*
+!linearmouse/.config/linearmouse/linearmouse.json

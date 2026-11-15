@@ -22,6 +22,8 @@ runtime, so both work from any clone location.
 | `ghostty` | Ghostty terminal config | `~/Library/Application Support/com.mitchellh.ghostty/config.ghostty` |
 | `vscode`  | VS Code keybindings | `~/Library/Application Support/Code/User/keybindings.json` |
 | `claude`  | Global Claude Code instructions and settings | `~/.claude/CLAUDE.md`, `~/.claude/settings.json` |
+| `openlogi` | OpenLogi (Logitech mouse remapping); gesture button runs `x shine` | `~/.config/openlogi/config.toml` |
+| `linearmouse` | LinearMouse (pointer and scrolling) | `~/.config/linearmouse/linearmouse.json` |
 
 > **Note on tree-folding:** if a directory doesn't exist in `$HOME` yet,
 > Stow by default "folds" it into one symlink into this repo (e.g.
