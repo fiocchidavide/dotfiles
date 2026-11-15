@@ -9,15 +9,27 @@
 # Sets the monitor's brightness. up and down stop at 0 and 100.
 
 emulate -L zsh
-case "${1:-}" in
-    up)   m1ddc chg luminance 10 ;;
-    down) m1ddc chg luminance -10 ;;
-    *)
-        # Anything else would reach m1ddc as brightness 0.
-        if [[ $1 != <-> ]] || (( 10#$1 > 100 )); then
-            _x_help shine
-            return
-        fi
-        m1ddc set luminance "$1"
-        ;;
-esac
+zmodload zsh/system
+# Overlapping DDC exchanges garble the monitor's replies: chg then reads
+# values like 32948 and the monitor clamps the result to 100, so fast swipes
+# (each its own process) take turns on a lock. Fixed path, not $TMPDIR, so
+# OpenLogi's runs and the terminal's share it.
+local lock=/tmp/x-shine-$UID.lock fd
+: >>| $lock || return
+zsystem flock -f fd -t 5 $lock || return
+{
+    case "${1:-}" in
+        up)   m1ddc chg luminance 10 ;;
+        down) m1ddc chg luminance -10 ;;
+        *)
+            # Anything else would reach m1ddc as brightness 0.
+            if [[ $1 != <-> ]] || (( 10#$1 > 100 )); then
+                _x_help shine
+                return
+            fi
+            m1ddc set luminance "$1"
+            ;;
+    esac
+} always {
+    exec {fd}>&-
+}
