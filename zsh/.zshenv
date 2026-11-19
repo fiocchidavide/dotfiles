@@ -32,6 +32,11 @@ fi
 [[ -d "$HOME/.local/bin" ]] && _dotfiles_user_path+=("$HOME/.local/bin")
 # go install
 [[ -d "$HOME/go/bin" ]] && _dotfiles_user_path+=("$HOME/go/bin")
+# JDK 25 (Homebrew's openjdk@25 is keg-only, so java_home cannot find it)
+if [[ -d /opt/homebrew/opt/openjdk@25/libexec/openjdk.jdk/Contents/Home ]]; then
+  export JAVA_HOME=/opt/homebrew/opt/openjdk@25/libexec/openjdk.jdk/Contents/Home
+  _dotfiles_user_path+=("$JAVA_HOME/bin")
+fi
 path=(${_dotfiles_user_path:|path} $path)
 
 # LM Studio CLI (lms), last on purpose
