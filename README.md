@@ -104,6 +104,7 @@ git clone git@github.com:fiocchidavide/dotfiles.git   # clone anywhere
 cd dotfiles
 make install    # Homebrew + brew bundle + stow everything + oh-my-zsh & plugins
 cp x/.config/x/config.zsh.example x/.config/x/config.zsh   # then fill it in
+make touchid    # Touch ID for sudo (/etc/pam.d/sudo_local, survives macOS updates)
 ```
 
 `make install` also installs oh-my-zsh and the third-party plugins

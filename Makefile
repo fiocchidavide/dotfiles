@@ -24,7 +24,7 @@ export PATH := $(patsubst %/,%,$(dir $(BREW))):$(PATH)
 ZSH_CUSTOM ?= $(HOME)/.oh-my-zsh/custom
 
 .DEFAULT_GOAL := help
-.PHONY: install ensure-brew install-brew brew omz link relink unlink doctor help
+.PHONY: install ensure-brew install-brew brew omz link relink unlink touchid doctor help
 
 # link before omz so the stowed ~/.zshrc exists first (omz KEEP_ZSHRC keeps it).
 install: ensure-brew brew link omz ## full bootstrap: Homebrew + deps + symlinks + oh-my-zsh
@@ -62,6 +62,18 @@ relink: ## re-symlink packages (after adding/removing files)
 
 unlink: ## remove all symlinks for every package
 	$(STOW) -Dv $(PACKAGES)
+
+# /etc/pam.d/sudo_local is macOS's hook for local sudo PAM rules: it is
+# included by /etc/pam.d/sudo and, unlike that file, survives system updates.
+# It lives outside $HOME, so it is written here rather than stowed.
+touchid: ## enable Touch ID for sudo (asks for your password once)
+	@if grep -qE '^auth[[:space:]]+sufficient[[:space:]]+pam_tid\.so' /etc/pam.d/sudo_local 2>/dev/null; then \
+		echo "✓ Touch ID for sudo already enabled"; \
+	else \
+		printf '%s\n' '# sudo_local: local config file which survives system update and is included for sudo' \
+			'auth       sufficient     pam_tid.so' | sudo tee /etc/pam.d/sudo_local >/dev/null \
+		&& echo "✓ Touch ID for sudo enabled"; \
+	fi
 
 doctor: ## check runtime deps of x commands (uses a login shell for full PATH)
 	@zsh -lic 'x doctor'
