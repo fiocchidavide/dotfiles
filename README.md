@@ -25,6 +25,17 @@ runtime, so both work from any clone location.
 | `openlogi` | OpenLogi (Logitech mouse remapping); gesture button runs `x shine` | `~/.config/openlogi/config.toml` |
 | `linearmouse` | LinearMouse (pointer and scrolling) | `~/.config/linearmouse/linearmouse.json` |
 
+Not stow packages: `plugins/` (Claude Code plugins, read in place through `.claude-plugin/marketplace.json`) and `alfred/`.
+
+**`alfred/`** is Alfred's preferences folder (`Alfred.alfredpreferences`:
+features, appearance, workflows, snippets). Alfred replaces its files on save
+instead of writing through symlinks, so it reads the folder in place instead:
+in Alfred Preferences → Advanced → *Set preferences folder…*, choose this
+repo's `alfred/`. Do that on a fresh machine too. Alfred keeps the licence,
+clipboard history and caches in `~/Library/Application Support/Alfred`, outside
+this folder. Workflows can hold API keys in their variables: check them before
+committing.
+
 > **Note on tree-folding:** if a directory doesn't exist in `$HOME` yet,
 > Stow by default "folds" it into one symlink into this repo (e.g.
 > `~/.claude -> claude/.claude`), and every app writing there then writes

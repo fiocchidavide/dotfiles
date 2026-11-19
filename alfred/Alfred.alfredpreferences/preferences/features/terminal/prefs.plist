@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>application</key>
+	<integer>1</integer>
+	<key>custom</key>
+	<string>on alfred_script(q)
+    tell application "Ghostty"
+        activate
+        set cfg to new surface configuration
+        set initial input of cfg to q &amp; linefeed
+        if (count of windows) &gt; 0 then
+            new tab in front window with configuration cfg
+        else
+            new window with configuration cfg
+        end if
+    end tell
+end alfred_script</string>
+</dict>
+</plist>

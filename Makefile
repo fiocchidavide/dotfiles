@@ -1,9 +1,10 @@
 # Dotfiles bootstrap.  Run `make help` to list targets.
 # Packages are auto-detected as the top-level directories in this repo,
-# except plugins/: Claude Code plugins, read in place from the repo through
-# the marketplace in .claude-plugin/, not stowed.
+# except plugins/ (Claude Code plugins, read in place from the repo through
+# the marketplace in .claude-plugin/) and alfred/ (Alfred's preferences
+# folder, which Alfred reads in place), neither of which is stowed.
 STOW_DIR := $(CURDIR)
-PACKAGES := $(filter-out plugins,$(patsubst %/,%,$(wildcard */)))
+PACKAGES := $(filter-out plugins alfred,$(patsubst %/,%,$(wildcard */)))
 # Stow folds a directory missing from $HOME into a single symlink into the
 # repo, after which every other app writing there writes into this repo.
 # Packages are therefore stowed with --no-folding (real directories, one
