@@ -1,0 +1,12 @@
+# Files stow should NOT symlink into $HOME.
+# NOTE: defining this file overrides stow's built-in default ignore list.
+\.DS_Store
+# Editor swap/backup/lock files (Stow's default list, which this replaces,
+# covered these; .gitignore only hides them from git, not from stow).
+.+\.sw[po]
+.+~
+\.\#.+
+\#.*\#
+# OpenLogi follows the config.toml symlink and creates its lock next to the
+# file it points to, here in the repo; ~/.config/openlogi has its own.
+config\.toml\.lock
