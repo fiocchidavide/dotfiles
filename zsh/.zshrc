@@ -23,5 +23,11 @@ source ~/.myfunctions
 (( $+commands[fnm] )) && eval "$(fnm env --use-on-cd --shell zsh)"
 (( $+commands[zoxide] )) && eval "$(zoxide init zsh)"
 
-# Last: echo back on (~/.zshenv turned it off while the shell started)
-[[ -t 0 ]] && stty echo
+# Echo back on (~/.zshenv turned it off while the shell started), once, after
+# every other precmd hook (Pure's, fnm's) so nothing echoes before the prompt
+_dotfiles_echo_on() {
+  [[ -t 0 ]] && stty echo
+  precmd_functions=(${precmd_functions:#_dotfiles_echo_on})
+  unfunction _dotfiles_echo_on
+}
+precmd_functions+=(_dotfiles_echo_on)
