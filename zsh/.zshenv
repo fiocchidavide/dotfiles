@@ -2,11 +2,12 @@
 # above the prompt; keep them buffered until zle reads them. ~/.zshrc turns
 # echo back on just before the first prompt (if it dies first: stty echo, or
 # reset). Keys typed even earlier, while login(1) started the shell, were
-# already echoed: a new terminal (login shell, SHLVL 1) wipes them from the
-# screen, and zle shows them again at the prompt.
+# already echoed: a new terminal (a login shell whose parent is login(1); not
+# SHLVL, Ghostty's own environment has SHLVL=1) wipes them from the screen,
+# and zle shows them again at the prompt.
 if [[ -o interactive && -t 0 ]]; then
   stty -echo
-  [[ -o login && $SHLVL == 1 ]] && print -n '\e[H\e[J'
+  [[ -o login && $(ps -o comm= -p $PPID) == */login ]] && print -n '\e[H\e[J'
 fi
 
 # De-duplicate PATH/FPATH automatically (keeps first occurrence; avoids
