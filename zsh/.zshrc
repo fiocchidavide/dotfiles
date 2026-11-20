@@ -22,3 +22,6 @@ source ~/.myfunctions
 # fnm and zoxide, where installed (a fresh machine before make brew lacks them)
 (( $+commands[fnm] )) && eval "$(fnm env --use-on-cd --shell zsh)"
 (( $+commands[zoxide] )) && eval "$(zoxide init zsh)"
+
+# Last: echo back on (~/.zshenv turned it off while the shell started)
+[[ -t 0 ]] && stty echo

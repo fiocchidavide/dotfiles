@@ -16,7 +16,7 @@ runtime, so both work from any clone location.
 | Package | Provides | Symlinks |
 | ------- | -------- | -------- |
 | `x`       | The `x` personal command dispatcher | `~/.config/x` |
-| `zsh`     | Shell entry points | `~/.zshrc`, `~/.zshenv`, `~/.zprofile`, `~/.myfunctions` |
+| `zsh`     | Shell entry points | `~/.zshrc`, `~/.zshenv`, `~/.zprofile`, `~/.myfunctions`, `~/.hushlogin` (no "Last login" line) |
 | `git`     | Git config | `~/.gitconfig` |
 | `ssh`     | SSH client config and public key | `~/.ssh/config`, `~/.ssh/id_ed25519.pub` |
 | `ghostty` | Ghostty terminal config | `~/Library/Application Support/com.mitchellh.ghostty/config.ghostty` |

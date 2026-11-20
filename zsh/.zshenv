@@ -1,3 +1,8 @@
+# Keys typed while an interactive shell starts would be echoed by the tty
+# above the prompt; keep them buffered until zle reads them. ~/.zshrc turns
+# echo back on as its last step (if it dies first: stty echo, or reset).
+[[ -o interactive && -t 0 ]] && stty -echo
+
 # De-duplicate PATH/FPATH automatically (keeps first occurrence; avoids
 # duplicate entries when this file is re-sourced by nested/child shells).
 typeset -U path PATH fpath FPATH
