@@ -6,8 +6,22 @@
 	<integer>1</integer>
 	<key>custom</key>
 	<string>on alfred_script(q)
+    set launching to not (application "Ghostty" is running)
     tell application "Ghostty"
         activate
+        if launching then
+            -- Launching opens a window of its own: type into it rather than
+            -- adding a second tab next to it
+            repeat 50 times
+                try
+                    set t to focused terminal of selected tab of front window
+                    input text q to t
+                    send key "enter" to t
+                    return
+                end try
+                delay 0.1
+            end repeat
+        end if
         set cfg to new surface configuration
         set initial input of cfg to q &amp; linefeed
         if (count of windows) &gt; 0 then
