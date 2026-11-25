@@ -7,3 +7,8 @@
 [credential "https://gist.github.com"]
 	helper = 
 	helper = !/opt/homebrew/bin/gh auth git-credential
+# GitHub over HTTPS, authenticated by gh's token (the helper above), so
+# background fetches don't ask the 1Password SSH agent for approval.
+[url "https://github.com/"]
+	insteadOf = git@github.com:
+	insteadOf = ssh://git@github.com/
