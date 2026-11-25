@@ -31,3 +31,8 @@ _dotfiles_echo_on() {
   unfunction _dotfiles_echo_on
 }
 precmd_functions+=(_dotfiles_echo_on)
+
+# Added by LM Studio CLI (lms)
+export PATH="$PATH:/Users/davide/.lmstudio/bin"
+# End of LM Studio CLI section
+
