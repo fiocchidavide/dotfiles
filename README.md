@@ -49,6 +49,75 @@ committing.
 > `.gitignore` excludes everything under the shared directories except the
 > versioned files.
 
+## Mice: OpenLogi and LinearMouse
+
+Two mice: a Logitech MX Master 4 and a Razer ProClickM. Natural scrolling is
+on system-wide for the trackpad, and both mice are reversed per device. Each
+app owns one side, so neither undoes the other:
+
+- **OpenLogi** owns the MX's hardware: buttons, gestures, Action Ring,
+  SmartShift (ratchet/free-spin, the `DpiToggle` button switches it) and DPI.
+  Every scroll setting stays neutral: no `invert_scroll`, no `smooth_wheel`,
+  `smooth_scroll` and `momentum_scrolling` off, both sensitivities at `14` (1×),
+  thumb wheel unbound, scroll resolution unset. Any of these makes OpenLogi
+  flip the wheel in firmware or swallow the real scroll and post its own,
+  which LinearMouse then skips.
+  `capture_mouse_events = false`: no HID-level event tap, so OpenLogi never
+  sees system input. The bound controls (gesture button, ModeShift, haptic
+  panel) are diverted over HID++ and don't need it; the tap is only for
+  remapping middle/back/forward, function keys and the wheel features above.
+- **LinearMouse** owns all scrolling and pointer acceleration, for both mice.
+  *Bypass events from other applications* is on, so OpenLogi's synthetic
+  keystrokes and scrolls are left alone. Its Logitech button mappings and
+  hardware DPI stay unset (OpenLogi diverts those controls); don't record an
+  MX button in its Buttons tab either, which diverts every control while it
+  records.
+
+The MX's reverse lives in LinearMouse, not OpenLogi, because IINA undoes
+reversal it thinks came from natural scrolling: it flipped OpenLogi's firmware
+inversion back, but leaves LinearMouse's alone.
+
+### LinearMouse schemes
+
+Later schemes override earlier ones.
+
+| Scheme | Scrolling |
+| ------ | --------- |
+| Any mouse | Accelerated (`auto`), pointer acceleration off |
+| ProClickM (`0x9b`) | 3 lines per notch, reversed, ⌘+scroll zooms; 10 lines in Preview |
+| ProClickM (`0x9a`) | 3 lines per notch, reversed |
+| MX Master 4 | 36 px per notch, reversed, high-resolution wheel on; horizontal accelerated, not reversed |
+| MX Master 4 in IINA | vertical 1 line per notch, not reversed; horizontal 18 px, reversed (pixel mode divides the thumb wheel by the main wheel's high-resolution multiplier, so small values seek almost nothing) |
+
+Scroll distance modes:
+
+- **Accelerated** (`auto`): macOS's own wheel curve (System Settings → Mouse →
+  Scrolling speed). The MX's high-resolution reports are folded back into
+  whole notches first, so the fine steps are lost.
+- **By pixels** (`"36px"`): a fixed distance per notch everywhere, no curve.
+  High-resolution reports pass through as fractions of a notch, so it is the
+  mode where the high-resolution wheel pays off. They are not filtered, so
+  the ratchet settling into a detent can show as a small backward jump.
+  Apps receive trackpad-style precise deltas, which IINA turns into huge
+  volume and seek steps (`36` per notch): hence the IINA scheme.
+- **By lines** (a number): each app decides how far a line is (small in
+  native apps, larger in browsers), and the high-resolution wheel is reduced
+  to whole notches.
+
+The *Acceleration* and *Speed* sliders apply after the distance mode, in all
+three:
+
+- **Acceleration** multiplies every scroll (`1` = unchanged, `0.5` = half).
+  It scales the whole curve; it doesn't change its shape.
+- **Speed** adds that many points to every scroll event (`0` = unchanged).
+  With the high-resolution wheel that is several events per notch, so keep it
+  at `0` there.
+
+LinearMouse reloads its file on change. OpenLogi re-reads `config.toml` only
+when asked to (its own app does after saving), so after a hand edit restart
+the agent with
+`pkill -x openlogi-agent` (its login service starts it again).
+
 ## Private settings
 
 No secrets or per-machine settings are versioned (only the git identity in
