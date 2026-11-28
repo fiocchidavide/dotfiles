@@ -1,10 +1,38 @@
 {
   "permissions": {
     "allow": [
-      "mcp__plugin_infra_cloudflare__search"
+      "mcp__plugin_infra_cloudflare__search",
+      "mcp__plugin_mail_apple-mail__get_awaiting_reply",
+      "mcp__plugin_mail_apple-mail__get_email_source",
+      "mcp__plugin_mail_apple-mail__get_email_thread",
+      "mcp__plugin_mail_apple-mail__get_inbox_overview",
+      "mcp__plugin_mail_apple-mail__get_mailbox_unread_counts",
+      "mcp__plugin_mail_apple-mail__get_needs_response",
+      "mcp__plugin_mail_apple-mail__get_statistics",
+      "mcp__plugin_mail_apple-mail__get_top_senders",
+      "mcp__plugin_mail_apple-mail__inbox_dashboard",
+      "mcp__plugin_mail_apple-mail__list_account_addresses",
+      "mcp__plugin_mail_apple-mail__list_accounts",
+      "mcp__plugin_mail_apple-mail__list_email_attachments",
+      "mcp__plugin_mail_apple-mail__list_inbox_emails",
+      "mcp__plugin_mail_apple-mail__list_mailboxes",
+      "mcp__plugin_mail_apple-mail__read_email",
+      "mcp__plugin_mail_apple-mail__search_emails",
+      "mcp__plugin_mail_apple-mail__synchronize_account"
     ],
     "ask": [
-      "mcp__plugin_infra_cloudflare__execute"
+      "mcp__plugin_infra_cloudflare__execute",
+      "mcp__plugin_mail_apple-mail__compose_email",
+      "mcp__plugin_mail_apple-mail__reply_to_email",
+      "mcp__plugin_mail_apple-mail__forward_email",
+      "mcp__plugin_mail_apple-mail__manage_drafts",
+      "mcp__plugin_mail_apple-mail__manage_trash",
+      "mcp__plugin_mail_apple-mail__move_email",
+      "mcp__plugin_mail_apple-mail__update_email_status",
+      "mcp__plugin_mail_apple-mail__create_mailbox",
+      "mcp__plugin_mail_apple-mail__create_rich_email_draft",
+      "mcp__plugin_mail_apple-mail__export_emails",
+      "mcp__plugin_mail_apple-mail__save_email_attachment"
     ]
   },
   "model": "opus",
@@ -28,7 +56,8 @@
     "zotero-librarian@zotero-librarian": true,
     "handbook@handbook": true,
     "snotes@snotes": true,
-    "infra@dotfiles": true
+    "infra@dotfiles": true,
+    "mail@dotfiles": true
   },
   "extraKnownMarketplaces": {
     "zotero-librarian": {
