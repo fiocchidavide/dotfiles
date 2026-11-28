@@ -1,10 +1,13 @@
 {
   "mcpServers": {
     "apple-mail": {
-      "command": "uvx",
+      "command": "uv",
       "args": [
-        "--from",
-        "git+https://github.com/patrickfreyer/apple-mail-mcp@a6d6cf5c448fbbc74b3268a1df8af2d1730a8a2e",
+        "run",
+        "--quiet",
+        "--locked",
+        "--project",
+        "${CLAUDE_PLUGIN_ROOT}",
         "mcp-apple-mail",
         "--read-only",
         "--attach-dir",

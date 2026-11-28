@@ -1,0 +1,21 @@
+# The Apple Mail MCP server, as a locked uv project so that both the server
+# and every dependency are pinned: `uvx --from git+…@<commit>` pins only the
+# server and resolves its dependencies afresh on every start.
+#
+# The server's commit is the `rev` below; uv.lock pins everything else, with
+# hashes. Both only change through the `pins` skill in the handbook
+# (~/Code/handbook/pins/), which reviews the code before a bump.
+[project]
+name = "mail-plugin"
+version = "0"
+requires-python = ">=3.12"
+dependencies = ["mcp-apple-mail"]
+
+[tool.uv]
+package = false
+# Only resolve releases at least a week old: a compromised release is usually
+# caught and yanked within days, before it can get into this lock.
+exclude-newer = "7 days"
+
+[tool.uv.sources]
+mcp-apple-mail = { git = "https://github.com/patrickfreyer/apple-mail-mcp", rev = "a6d6cf5c448fbbc74b3268a1df8af2d1730a8a2e" }

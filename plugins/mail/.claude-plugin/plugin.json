@@ -1,5 +1,5 @@
 {
   "name": "mail",
-  "description": "Apple Mail through patrickfreyer/apple-mail-mcp, pinned to a reviewed commit, read-only (drafts only, never sends), with attachments and saved files confined to ~/Downloads/Mail.",
+  "description": "Apple Mail through patrickfreyer/apple-mail-mcp, pinned to a reviewed commit with locked dependencies, read-only (drafts only, never sends), with attachments and saved files confined to ~/Downloads/Mail.",
   "author": { "name": "Davide Fiocchi" }
 }
