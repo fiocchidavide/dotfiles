@@ -5,6 +5,6 @@
 
 # `x serve off <TAB>` -> which share to stop
 if [[ ${words[3]} == (off|stop|down|d) ]] && (( CURRENT == 4 )); then
-    local -a shares=('webdav:stop the WebDAV share' 'paseo:stop the paseo share' 'all:stop both')
+    local -a shares=('webdav:stop the WebDAV share' 'all:stop every share')
     _describe 'share' shares
 fi

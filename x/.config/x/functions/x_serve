@@ -1,12 +1,11 @@
-## share a local service over the tailnet (webdav | paseo), or stop sharing
+## share a folder over the tailnet as WebDAV, or stop sharing
 #@needs tailscale rclone op jq nc htpasswd
-# Usage: x serve [webdav|paseo|off] …
+# Usage: x serve [webdav|off] …
 #
 #   x serve webdav [dir]   rclone WebDAV backend + tailscale in front (default $X_WEBDAV_DIR)
-#   x serve paseo          front the already-running paseo daemon on :6767
-#   x serve off|stop|down|d [webdav|paseo|all]
-#                          stop one share, or all of them (the default)
-#   x serve                list the shares and whether each is up
+#   x serve off|stop|down|d [webdav|all]
+#                          stop the share (all is the default)
+#   x serve                show whether the share is up
 #
 # Shares run in the background (`tailscale serve --bg`, rclone detached), so
 # they outlive the shell that started them, like `x connect`. Tailscale comes
@@ -19,7 +18,7 @@
 emulate -L zsh
 
 local state_dir=${XDG_STATE_HOME:-$HOME/.local/state}/x/serve
-local webdav_port=8080 paseo_port=6767
+local webdav_port=8080
 # Marker: present while Tailscale is up only because a share brought it up.
 local ts_ours=$state_dir/tailscale-started
 
@@ -32,7 +31,7 @@ _x_serve_dnsname() {
     tailscale status --json | jq -r '.Self.DNSName | rtrimstr(".")'
 }
 
-# Tailnet-side HTTPS ports that currently have a serve config (443, 6767, …).
+# Tailnet-side HTTPS ports that currently have a serve config (443, …).
 _x_serve_ports() {
     tailscale serve status --json 2>/dev/null | jq -r '.TCP // {} | keys[]'
 }
@@ -180,31 +179,6 @@ _x_serve_webdav() {
     _x_info "user: $X_WEBDAV_USER · password: 1Password → $X_WEBDAV_PASSWORD_REF"
 }
 
-# Front the paseo daemon, which listens on 127.0.0.1:6767 of its own accord
-# (see ~/.paseo/config.json). Same port on the tailnet side so app.paseo.sh —
-# the only allowed CORS origin — can reach it from another device.
-_x_serve_paseo() {
-    if (( ${(M)#${(f)"$(_x_serve_ports)"}:#$paseo_port} )); then
-        _x_ok "paseo is already up."
-        return 0
-    fi
-
-    if ! nc -z 127.0.0.1 "$paseo_port" 2>/dev/null; then
-        _x_warn "Nothing is listening on 127.0.0.1:$paseo_port. Is the paseo daemon running?"
-        _x_info "Serving anyway; it'll start working once the daemon is up."
-    fi
-
-    _x_serve_tailscale_up || return
-
-    if ! tailscale serve --bg --https="$paseo_port" "http://127.0.0.1:$paseo_port" >/dev/null; then
-        _x_err "tailscale serve failed."
-        _x_serve_tailscale_settle
-        return 1
-    fi
-
-    _x_ok "paseo daemon → https://$(_x_serve_dnsname):$paseo_port"
-}
-
 _x_serve_stop_webdav() {
     local quiet=$1 pid stopped=0
     if (( ${(M)#${(f)"$(_x_serve_ports)"}:#443} )); then
@@ -220,12 +194,6 @@ _x_serve_stop_webdav() {
     return 0
 }
 
-_x_serve_stop_paseo() {
-    (( ${(M)#${(f)"$(_x_serve_ports)"}:#$paseo_port} )) || return 0
-    tailscale serve --https="$paseo_port" off >/dev/null 2>&1
-    _x_ok "Stopped paseo."
-}
-
 _x_serve_off() {
     local target=${1:-all}
     local -a ports
@@ -236,9 +204,7 @@ _x_serve_off() {
         return 0
     fi
     case $target in
-        all)    _x_serve_stop_webdav; _x_serve_stop_paseo ;;
-        webdav) _x_serve_stop_webdav ;;
-        paseo)  _x_serve_stop_paseo ;;
+        all|webdav) _x_serve_stop_webdav ;;
         *)
             _x_err "Unknown target '$target'."
             _x_help serve off
@@ -275,20 +241,11 @@ _x_serve_status() {
     else
         _x_item off "webdav     off"
     fi
-
-    if (( ${(M)#ports:#$paseo_port} )); then
-        local note=""
-        nc -z 127.0.0.1 "$paseo_port" 2>/dev/null || note=" (daemon not listening)"
-        _x_item on "paseo      https://$host:$paseo_port$note"
-    else
-        _x_item off "paseo      off"
-    fi
 }
 
 case "${1:-}" in
     "")        _x_serve_status ;;
     webdav)    shift; _x_serve_webdav "$@" ;;
-    paseo)     shift; _x_serve_paseo "$@" ;;
     off|stop|down|d) shift; _x_serve_off "$@" ;;
     *)         _x_help serve ;;
 esac
