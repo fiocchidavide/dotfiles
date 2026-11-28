@@ -153,7 +153,7 @@ your `-q` to it) silences everything but warnings and errors.
 | `_x_ok` / `_x_warn` / `_x_err` | it worked / worth knowing / it failed |
 | `_x_help [-o] foo [sub…]` | the command's Usage block (a subcommand's lines only); on stderr with status 1, or stdout with `-o` when `-h`/`--help` asked for it (and status 0) |
 | `_x_heading`, `_x_row name text` | report heading, aligned name/description rows |
-| `_x_item on\|half\|off\|ok\|err text` | report line led by a state icon (x serve, x connect) |
+| `_x_item on\|half\|off\|ok\|err text` | report line led by a state icon (x connect) |
 | `_x_mark role text` | inline mark, several per line (x doctor) |
 | `_x_paint style text`, `_x_icon role` | inline styled text or icon, for composing |
 | `_x_spin [-t] "label" cmd…` | spinner with elapsed time while cmd runs, then a success or error line (`-t`: no line on success); cmd's stdout passes through |
