@@ -68,7 +68,7 @@ first. The essentials:
   #   x rveil keys new            create one
   #   x rveil rm <match>…
   #                               delete archives   <- description continued
-  #   x connect off|down [vpn]    disconnect        <- a subcommand + its aliases
+  #   x serve off|stop [target]   stop sharing      <- a subcommand + its aliases
   #
   # Options:
   #   -k keyid    master key to derive from

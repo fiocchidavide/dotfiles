@@ -1,0 +1,294 @@
+## share a local service over the tailnet (webdav | paseo), or stop sharing
+#@needs tailscale rclone op jq nc htpasswd
+# Usage: x serve [webdav|paseo|off] …
+#
+#   x serve webdav [dir]   rclone WebDAV backend + tailscale in front (default $X_WEBDAV_DIR)
+#   x serve paseo          front the already-running paseo daemon on :6767
+#   x serve off|stop|down|d [webdav|paseo|all]
+#                          stop one share, or all of them (the default)
+#   x serve                list the shares and whether each is up
+#
+# Shares run in the background (`tailscale serve --bg`, rclone detached), so
+# they outlive the shell that started them, like `x connect`. Tailscale comes
+# up on demand: if a share needed to start it, the last `x serve off` takes it
+# down again. A Tailscale that was already up is left alone.
+#
+# WebDAV user, password reference and default directory come from
+# ~/.config/x/config.zsh (X_WEBDAV_*).
+
+emulate -L zsh
+
+local state_dir=${XDG_STATE_HOME:-$HOME/.local/state}/x/serve
+local webdav_port=8080 paseo_port=6767
+# Marker: present while Tailscale is up only because a share brought it up.
+local ts_ours=$state_dir/tailscale-started
+
+_x_serve_backend() {
+    tailscale status --json 2>/dev/null | jq -r '.BackendState // empty'
+}
+
+# This node's HTTPS name, trailing dot stripped.
+_x_serve_dnsname() {
+    tailscale status --json | jq -r '.Self.DNSName | rtrimstr(".")'
+}
+
+# Tailnet-side HTTPS ports that currently have a serve config (443, 6767, …).
+_x_serve_ports() {
+    tailscale serve status --json 2>/dev/null | jq -r '.TCP // {} | keys[]'
+}
+
+# Hand tailscale a port that's actually listening, or it proxies to nothing.
+# Returns non-zero if nothing came up within ~5s.
+_x_serve_wait_port() {
+    local port=$1 i
+    for i in {1..50}; do
+        nc -z 127.0.0.1 "$port" 2>/dev/null && return 0
+        sleep 0.1
+    done
+    return 1
+}
+
+# PID of the rclone we detached for webdav, if it's still that rclone.
+_x_serve_rclone_pid() {
+    local pid
+    [[ -r $state_dir/webdav.pid ]] || return 1
+    pid=$(<$state_dir/webdav.pid)
+    [[ $(ps -o comm= -p "$pid" 2>/dev/null) == *rclone* ]] || return 1
+    print $pid
+}
+
+# Bring Tailscale up if it isn't, remembering that we did so that
+# `x serve off` knows it may take it down again.
+_x_serve_tailscale_up() {
+    local state i
+    state=$(_x_serve_backend)
+    [[ $state == Running ]] && return 0
+
+    # The macOS app hosts the daemon; the CLI can't reach it while it's closed.
+    if [[ -z $state ]]; then
+        _x_step "Launching Tailscale"
+        open -ga Tailscale 2>/dev/null
+        for i in {1..50}; do
+            state=$(_x_serve_backend)
+            [[ -n $state ]] && break
+            sleep 0.2
+        done
+        if [[ -z $state ]]; then
+            _x_err "Couldn't reach Tailscale. Is the app installed?"
+            return 1
+        fi
+        [[ $state == Running ]] && { mkdir -p $state_dir; : >| $ts_ours; return 0 }
+    fi
+
+    _x_step "Bringing Tailscale up"
+    if ! tailscale up || [[ $(_x_serve_backend) != Running ]]; then
+        _x_err "Tailscale didn't come up."
+        return 1
+    fi
+    mkdir -p $state_dir
+    : >| $ts_ours
+}
+
+# Take Tailscale down once nothing is served, but only if a share started it.
+_x_serve_tailscale_settle() {
+    [[ -e $ts_ours ]] || return 0
+    if [[ $(_x_serve_backend) != Running ]]; then
+        rm -f $ts_ours
+        return 0
+    fi
+    [[ -z $(_x_serve_ports) ]] || return 0
+    _x_step "Nothing left to serve, taking Tailscale down"
+    tailscale down && rm -f $ts_ours
+}
+
+# Share a directory as WebDAV. rclone serves it on localhost, tailscale fronts
+# it with the node's HTTPS name; both keep running after this shell exits.
+_x_serve_webdav() {
+    local dir="${1:-${X_WEBDAV_DIR:-$HOME/WebDAV}}"
+    dir=${dir:A}
+    if _x_serve_rclone_pid >/dev/null && (( ${(M)#${(f)"$(_x_serve_ports)"}:#443} )); then
+        local serving=
+        [[ -r $state_dir/webdav.dir ]] && serving=$(<$state_dir/webdav.dir)
+        # No folder named: whatever is up is fine.
+        if [[ -z $1 || $serving == $dir ]]; then
+            _x_ok "webdav is already up: $serving"
+            return 0
+        fi
+        _x_warn "webdav is already serving $serving. Run 'x serve off webdav' first."
+        return 1
+    fi
+    _x_need_config X_WEBDAV_USER X_WEBDAV_PASSWORD_REF || return
+
+    if [[ ! -d "$dir" ]]; then
+        _x_err "No such directory: $dir"
+        return 1
+    fi
+
+    # Clear out a half-dead share (e.g. rclone gone after a reboot).
+    _x_serve_stop_webdav quiet
+
+    # Someone else on the port would answer the wait below in rclone's place,
+    # and tailscale would then publish that service instead.
+    if nc -z 127.0.0.1 "$webdav_port" 2>/dev/null; then
+        _x_err "Something else is already listening on 127.0.0.1:$webdav_port."
+        return 1
+    fi
+
+    local password
+    password=$(op read "$X_WEBDAV_PASSWORD_REF")
+    if [[ -z "$password" ]]; then
+        _x_err "Couldn't read the WebDAV password from 1Password."
+        return 1
+    fi
+
+    _x_serve_tailscale_up || return
+
+    mkdir -p $state_dir
+    # rclone gets a bcrypt hash of the password in an htpasswd file, never the
+    # password itself: as --pass it would be in the process list, and as
+    # RCLONE_PASS in the environment of a process that runs for days.
+    # htpasswd -i reads the password from stdin.
+    local htpasswd=$state_dir/webdav.htpasswd
+    if ! ( umask 077; print -r -- "$password" | htpasswd -niB "$X_WEBDAV_USER" >| $htpasswd ); then
+        rm -f $htpasswd
+        _x_err "Couldn't write the WebDAV password file."
+        _x_serve_tailscale_settle
+        return 1
+    fi
+    password=""
+    # `&!` disowns, so rclone outlives this shell.
+    nohup rclone serve webdav "$dir" --addr "127.0.0.1:$webdav_port" --htpasswd $htpasswd \
+        >| $state_dir/webdav.log 2>&1 &!
+    print $! >| $state_dir/webdav.pid
+    print -r -- "$dir" >| $state_dir/webdav.dir
+
+    if ! _x_serve_wait_port "$webdav_port" || ! _x_serve_rclone_pid >/dev/null; then
+        _x_err "rclone never came up on 127.0.0.1:$webdav_port (see ${state_dir/#$HOME/~}/webdav.log)."
+        _x_serve_stop_webdav quiet
+        _x_serve_tailscale_settle
+        return 1
+    fi
+
+    if ! tailscale serve --bg "http://127.0.0.1:$webdav_port" >/dev/null; then
+        _x_err "tailscale serve failed."
+        _x_serve_stop_webdav quiet
+        _x_serve_tailscale_settle
+        return 1
+    fi
+
+    _x_ok "$dir → https://$(_x_serve_dnsname)"
+    _x_info "user: $X_WEBDAV_USER · password: 1Password → $X_WEBDAV_PASSWORD_REF"
+}
+
+# Front the paseo daemon, which listens on 127.0.0.1:6767 of its own accord
+# (see ~/.paseo/config.json). Same port on the tailnet side so app.paseo.sh —
+# the only allowed CORS origin — can reach it from another device.
+_x_serve_paseo() {
+    if (( ${(M)#${(f)"$(_x_serve_ports)"}:#$paseo_port} )); then
+        _x_ok "paseo is already up."
+        return 0
+    fi
+
+    if ! nc -z 127.0.0.1 "$paseo_port" 2>/dev/null; then
+        _x_warn "Nothing is listening on 127.0.0.1:$paseo_port. Is the paseo daemon running?"
+        _x_info "Serving anyway; it'll start working once the daemon is up."
+    fi
+
+    _x_serve_tailscale_up || return
+
+    if ! tailscale serve --bg --https="$paseo_port" "http://127.0.0.1:$paseo_port" >/dev/null; then
+        _x_err "tailscale serve failed."
+        _x_serve_tailscale_settle
+        return 1
+    fi
+
+    _x_ok "paseo daemon → https://$(_x_serve_dnsname):$paseo_port"
+}
+
+_x_serve_stop_webdav() {
+    local quiet=$1 pid stopped=0
+    if (( ${(M)#${(f)"$(_x_serve_ports)"}:#443} )); then
+        tailscale serve --https=443 off >/dev/null 2>&1
+        stopped=1
+    fi
+    if pid=$(_x_serve_rclone_pid); then
+        kill $pid 2>/dev/null
+        stopped=1
+    fi
+    rm -f $state_dir/webdav.pid $state_dir/webdav.dir $state_dir/webdav.htpasswd
+    [[ -z $quiet ]] && (( stopped )) && _x_ok "Stopped webdav."
+    return 0
+}
+
+_x_serve_stop_paseo() {
+    (( ${(M)#${(f)"$(_x_serve_ports)"}:#$paseo_port} )) || return 0
+    tailscale serve --https="$paseo_port" off >/dev/null 2>&1
+    _x_ok "Stopped paseo."
+}
+
+_x_serve_off() {
+    local target=${1:-all}
+    local -a ports
+    ports=(${(f)"$(_x_serve_ports)"})
+    if [[ $target == all ]] && (( ! ${#ports} )) && ! _x_serve_rclone_pid >/dev/null; then
+        _x_info "Nothing to stop."
+        _x_serve_tailscale_settle
+        return 0
+    fi
+    case $target in
+        all)    _x_serve_stop_webdav; _x_serve_stop_paseo ;;
+        webdav) _x_serve_stop_webdav ;;
+        paseo)  _x_serve_stop_paseo ;;
+        *)
+            _x_err "Unknown target '$target'."
+            _x_help serve off
+            return
+            ;;
+    esac
+    _x_serve_tailscale_settle
+}
+
+_x_serve_status() {
+    local state host
+    local -a ports
+    state=$(_x_serve_backend)
+    if [[ $state == Running ]]; then
+        host=$(_x_serve_dnsname)
+        ports=(${(f)"$(_x_serve_ports)"})
+        if [[ -e $ts_ours ]]; then
+            _x_item on "tailscale  up (started by x serve)"
+        else
+            _x_item on "tailscale  up"
+        fi
+    else
+        _x_item off "tailscale  ${(L)state:-not running}"
+    fi
+
+    local rclone_up=0
+    _x_serve_rclone_pid >/dev/null && rclone_up=1
+    if (( ${(M)#ports:#443} && rclone_up )); then
+        local served=?
+        [[ -r $state_dir/webdav.dir ]] && served=$(<$state_dir/webdav.dir)
+        _x_item on "webdav     $served → https://$host"
+    elif (( ${(M)#ports:#443} || rclone_up )); then
+        _x_item half "webdav     half up (run 'x serve off webdav')"
+    else
+        _x_item off "webdav     off"
+    fi
+
+    if (( ${(M)#ports:#$paseo_port} )); then
+        local note=""
+        nc -z 127.0.0.1 "$paseo_port" 2>/dev/null || note=" (daemon not listening)"
+        _x_item on "paseo      https://$host:$paseo_port$note"
+    else
+        _x_item off "paseo      off"
+    fi
+}
+
+case "${1:-}" in
+    "")        _x_serve_status ;;
+    webdav)    shift; _x_serve_webdav "$@" ;;
+    paseo)     shift; _x_serve_paseo "$@" ;;
+    off|stop|down|d) shift; _x_serve_off "$@" ;;
+    *)         _x_help serve ;;
+esac

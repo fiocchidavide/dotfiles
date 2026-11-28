@@ -565,7 +565,7 @@ _x_help() {
 # Reports on stdout: a bold heading, aligned name/description rows, and items
 # led by a role icon (on/half/off for state, ok/err for checks).
 #   _x_heading "Commands"; _x_row rveil "encrypted archives"
-#   _x_item on "eth  student-net, up since 09:12"
+#   _x_item on "webdav  ~/WebDAV → https://…"
 #   _x_mark ok jq; _x_mark err fzf; print     # inline marks, one line
 _x_heading() {
     local X_FANCY_OUT; _x_fancy 1 && X_FANCY_OUT=1
